@@ -38,7 +38,6 @@ A clean, modern interface for text completion using the OpenRouter API, featurin
 On first run, the application will create a configuration directory at `~/.openrouter-flask` containing:
 
 - `config.json`: Application settings and document list
-- `documents/`: Directory containing document JSON files
 
 You'll need to set your OpenRouter API token in the interface before generating completions.
 
@@ -48,6 +47,7 @@ You'll need to set your OpenRouter API token in the interface before generating 
 - **`static/js/app.js`**: Frontend JavaScript for the editor and document management
 - **`templates/index.html`**: Main editor interface with sidebar and document list
 - **`templates/settings.html`**: Settings page for configuring OpenRouter API parameters
+- **`documents/*`**: Location of saved works
 
 ## How It Works
 
