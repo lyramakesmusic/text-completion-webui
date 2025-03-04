@@ -402,6 +402,22 @@ function startStreaming(generationId) {
     domElements.cancelBtn.style.display = 'block';
     domElements.submitBtn.style.display = 'none';
     
+    // Add keyboard shortcut handler for Ctrl+C
+    const cancelHandler = function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+            e.preventDefault();  // Prevent default copy behavior
+            if (currentGenerationId) {
+                // Trigger the cancel button click
+                domElements.cancelBtn.click();
+                // Remove the event listener since generation is cancelled
+                document.removeEventListener('keydown', cancelHandler);
+            }
+        }
+    };
+    
+    // Add the event listener
+    document.addEventListener('keydown', cancelHandler);
+    
     const eventSource = new EventSource(`/stream/${generationId}`);
     
     eventSource.onmessage = function(event) {
@@ -439,6 +455,9 @@ function startStreaming(generationId) {
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
+            
+            // Remove the Ctrl+C handler
+            document.removeEventListener('keydown', cancelHandler);
         }
         
         // Handle error in generation
@@ -451,6 +470,9 @@ function startStreaming(generationId) {
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
+            
+            // Remove the Ctrl+C handler
+            document.removeEventListener('keydown', cancelHandler);
             
             // Show error to user
             alert('Error generating text: ' + data.error);
@@ -465,6 +487,9 @@ function startStreaming(generationId) {
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
+            
+            // Remove the Ctrl+C handler
+            document.removeEventListener('keydown', cancelHandler);
         }
     };
     
@@ -477,6 +502,9 @@ function startStreaming(generationId) {
         domElements.submitBtn.disabled = false;
         domElements.submitBtn.style.display = 'block';
         domElements.cancelBtn.style.display = 'none';
+        
+        // Remove the Ctrl+C handler
+        document.removeEventListener('keydown', cancelHandler);
     };
 }
 
@@ -488,6 +516,50 @@ function startStreaming(generationId) {
 document.addEventListener('DOMContentLoaded', function() {
     // Load initial documents
     loadDocuments();
+    
+    // Token form submission handler
+    document.getElementById('token-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const token = document.getElementById('token-input').value.trim();
+        
+        if (token) {
+            fetch('/set_token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    'token': token
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Hide the token warning alert
+                    const warningAlert = document.querySelector('.warning-alert');
+                    if (warningAlert) {
+                        warningAlert.style.display = 'none';
+                    }
+                    
+                    // Enable the submit button
+                    domElements.submitBtn.disabled = false;
+                    
+                    // Close the modal
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('tokenModal'));
+                    if (modal) {
+                        modal.hide();
+                    }
+                } else {
+                    console.error('Error setting token:', data.error);
+                    alert('Failed to save token. Please try again.');
+                }
+            })
+            .catch(error => {
+                console.error('Error setting token:', error);
+                alert('Failed to save token. Please try again.');
+            });
+        }
+    });
     
     // Set up event listeners
     domElements.toggleSidebarBtn.addEventListener('click', function() {
