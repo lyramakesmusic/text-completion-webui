@@ -1,88 +1,68 @@
 # OpenRouter Text Completion Interface
 
-A clean, modern interface for text completion using the OpenRouter API, featuring document management and a collapsible sidebar.
+A simple writing/editing app for using base LLMs in a classic-gpt3-like text sandbox. Edit and reroll completions as desired with no setup or interface friction, just a text box and unlimited format potential.
 
 ## Features
 
-- **Document Management**: Create, edit, rename, and delete documents
-- **Collapsible Sidebar**: Toggle sidebar visibility for more editing space
-- **Full State Persistence**: All documents and settings saved between sessions
-- **Keyboard Shortcuts**: Ctrl+Enter (or Cmd+Enter) to generate completions
+- Text completion using llama3-405b-base via OpenRouter
+- Simple document management (create, edit, rename, delete)
+- Quick keyboard shortcuts (Ctrl+Enter or Cmd+Enter for completions)
+- Automatically saves as you type
+- Customizable temperature/sampling settings
 
-## Installation
+## Quick Start
 
-1. Clone the repository
-2. Install dependencies:
-   ```
+1. **Install Python** (3.7 or higher) if you haven't already
+2. **Install the required packages**:
+   ```bash
    pip install flask requests
    ```
-3. Create the following directory structure:
-   ```
-   your_project/
-   ├── app.py
-   ├── static/
-   │   └── js/
-   │       └── app.js
-   └── templates/
-       ├── index.html
-       └── settings.html
-   ```
-4. Run the application:
-   ```
+3. **Run the application**:
+   ```bash
    python app.py
    ```
-5. Access the interface at `http://127.0.0.1:5000`
+4. **Open your browser** and go to `http://127.0.0.1:5000`
 
-## Configuration
+## Requirements
 
-On first run, the application will create a configuration directory at `~/.openrouter-flask` containing:
+- Python 3.7 or higher
+- Flask
+- Requests
+- OpenRouter API key (you'll be prompted to enter this in the settings)
 
-- `config.json`: Application settings and document list
+## Usage
 
-You'll need to set your OpenRouter API token in the interface before generating completions.
+1. **First Time Setup**:
+   - Launch the application
+   - Go to Settings (gear icon)
+   - Enter your OpenRouter API key (https://openrouter.ai/settings/keys)
+   - Choose your preferred AI model and settings
 
-## Project Structure
+2. **Creating Content**:
+   - Click "New Document" to start writing
+   - Type your text in the main editor
+   - Press Ctrl+Enter (or Cmd+Enter) to get AI suggestions
+   - Accept or reject suggestions as needed
 
-- **`app.py`**: Main Flask application with API routes and document management
-- **`static/js/app.js`**: Frontend JavaScript for the editor and document management
-- **`templates/index.html`**: Main editor interface with sidebar and document list
-- **`templates/settings.html`**: Settings page for configuring OpenRouter API parameters
-- **`documents/*`**: Location of saved works
+3. **Managing Documents**:
+   - Use the sidebar to switch between documents
+   - Right-click documents to rename or delete
+   - All changes are automatically saved
 
-## How It Works
+## Settings
 
-### Document Management
+You can change model settings through the settings panel:
 
-Documents are stored as JSON files in the `~/.openrouter-flask/documents` directory. Each document contains:
+- **Model Selection**: Choose from various OpenRouter models
+- **Temperature**: Control creativity (0-2)
+- **Min P**: Filter low-probability suggestions (0-1)
+- **Presence/Repetition Penalty**: Fine-tune output quality
 
-- Basic metadata (name, creation/update timestamps)
-- Document content
-- Version history (last 50 versions)
 
-### Settings
+## Contributing
 
-The application supports configuring various OpenRouter API parameters:
-
-- **Model**: LLM to use for completion (e.g., `meta-llama/llama-3.1-405b`)
-- **Temperature**: Controls randomness in generation (0-2)
-- **Min P**: Filters low-probability tokens (0-1)
-- **Presence Penalty**: Reduces repetition of tokens (0-2)
-- **Repetition Penalty**: Reduces phrase repetition (1-2)
-
-## Development
-
-### Modifying Styles
-
-Styles are defined within the HTML files for simplicity. Main styling is in `templates/index.html` and `templates/settings.html`.
-
-### Adding Features
-
-To add new features:
-
-1. Modify `app.py` to add new backend routes or functionality
-2. Update `static/js/app.js` to implement frontend behavior
-3. Modify templates in `templates/` directory to update the UI
+Contributions are welcome! Feel free to submit issues and pull requests.
 
 ## License
 
-MIT License
+This project is licensed under the MIT License - see the LICENSE file for details.

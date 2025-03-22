@@ -5,6 +5,7 @@ let editor = null;
 let currentDocument = null;
 let currentGenerationId = null;
 let lastContent = '';
+let isMobile = window.innerWidth <= 768;
 
 // Cache DOM elements
 const domElements = {
@@ -24,6 +25,11 @@ const domElements = {
     renameDocumentForm: document.getElementById('rename-document-form'),
     confirmDeleteBtn: document.getElementById('confirm-delete-btn')
 };
+
+// Create backdrop element
+const backdrop = document.createElement('div');
+backdrop.className = 'sidebar-backdrop';
+document.body.appendChild(backdrop);
 
 // ============================
 // Editor Management
@@ -231,8 +237,11 @@ function renderDocumentList(documents, currentDocId) {
         
         // Add click handler
         li.addEventListener('click', function(e) {
-            // Don't handle the click if it was on the actions menu
-            if (e.target.closest('.document-actions')) return;
+            // Don't handle the click if it was on or inside the actions menu
+            if (e.target.closest('.document-actions') || e.target.closest('.dropdown-menu')) {
+                e.stopPropagation();
+                return;
+            }
             
             loadDocument(doc.id);
         });
@@ -241,9 +250,16 @@ function renderDocumentList(documents, currentDocId) {
     });
     
     // Add event listeners for document actions
+    document.querySelectorAll('.document-actions').forEach(menu => {
+        menu.addEventListener('click', function(e) {
+            e.stopPropagation(); // Prevent the click from reaching the document item
+        });
+    });
+
     document.querySelectorAll('.rename-doc').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
+            e.stopPropagation(); // Prevent the click from reaching the document item
             const docId = this.dataset.id;
             const docName = this.dataset.name;
             showRenameDocumentModal(docId, docName);
@@ -253,6 +269,7 @@ function renderDocumentList(documents, currentDocId) {
     document.querySelectorAll('.delete-doc').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
+            e.stopPropagation(); // Prevent the click from reaching the document item
             const docId = this.dataset.id;
             const docName = this.dataset.name;
             showDeleteDocumentModal(docId, docName);
@@ -402,22 +419,6 @@ function startStreaming(generationId) {
     domElements.cancelBtn.style.display = 'block';
     domElements.submitBtn.style.display = 'none';
     
-    // Add keyboard shortcut handler for Ctrl+C
-    const cancelHandler = function(e) {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-            e.preventDefault();  // Prevent default copy behavior
-            if (currentGenerationId) {
-                // Trigger the cancel button click
-                domElements.cancelBtn.click();
-                // Remove the event listener since generation is cancelled
-                document.removeEventListener('keydown', cancelHandler);
-            }
-        }
-    };
-    
-    // Add the event listener
-    document.addEventListener('keydown', cancelHandler);
-    
     const eventSource = new EventSource(`/stream/${generationId}`);
     
     eventSource.onmessage = function(event) {
@@ -455,9 +456,6 @@ function startStreaming(generationId) {
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
-            
-            // Remove the Ctrl+C handler
-            document.removeEventListener('keydown', cancelHandler);
         }
         
         // Handle error in generation
@@ -470,9 +468,6 @@ function startStreaming(generationId) {
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
-            
-            // Remove the Ctrl+C handler
-            document.removeEventListener('keydown', cancelHandler);
             
             // Show error to user
             alert('Error generating text: ' + data.error);
@@ -487,9 +482,6 @@ function startStreaming(generationId) {
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
-            
-            // Remove the Ctrl+C handler
-            document.removeEventListener('keydown', cancelHandler);
         }
     };
     
@@ -502,10 +494,10 @@ function startStreaming(generationId) {
         domElements.submitBtn.disabled = false;
         domElements.submitBtn.style.display = 'block';
         domElements.cancelBtn.style.display = 'none';
-        
-        // Remove the Ctrl+C handler
-        document.removeEventListener('keydown', cancelHandler);
     };
+
+    // Store EventSource instance for cleanup
+    window.currentEventSource = eventSource;
 }
 
 // ============================
@@ -517,59 +509,23 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load initial documents
     loadDocuments();
     
-    // Token form submission handler
-    document.getElementById('token-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const token = document.getElementById('token-input').value.trim();
-        
-        if (token) {
-            fetch('/set_token', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams({
-                    'token': token
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Hide the token warning alert
-                    const warningAlert = document.querySelector('.warning-alert');
-                    if (warningAlert) {
-                        warningAlert.style.display = 'none';
-                    }
-                    
-                    // Enable the submit button
-                    domElements.submitBtn.disabled = false;
-                    
-                    // Close the modal
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('tokenModal'));
-                    if (modal) {
-                        modal.hide();
-                    }
-                } else {
-                    console.error('Error setting token:', data.error);
-                    alert('Failed to save token. Please try again.');
-                }
-            })
-            .catch(error => {
-                console.error('Error setting token:', error);
-                alert('Failed to save token. Please try again.');
-            });
-        }
-    });
-    
     // Set up event listeners
     domElements.toggleSidebarBtn.addEventListener('click', function() {
-        domElements.sidebar.classList.toggle('collapsed');
+        if (isMobile) {
+            toggleMobileSidebar();
+        } else {
+            domElements.sidebar.classList.toggle('collapsed');
+        }
     });
     
     // Add event listener for sidebar handle if it exists
     if (domElements.sidebarHandle) {
         domElements.sidebarHandle.addEventListener('click', function() {
-            domElements.sidebar.classList.toggle('collapsed');
+            if (isMobile) {
+                toggleMobileSidebar();
+            } else {
+                domElements.sidebar.classList.toggle('collapsed');
+            }
         });
     }
     
@@ -676,6 +632,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add cancel button handler
     domElements.cancelBtn.addEventListener('click', function() {
         if (currentGenerationId) {
+            // Close the EventSource first
+            if (window.currentEventSource) {
+                window.currentEventSource.close();
+            }
+            
             // Send cancel request to server
             fetch(`/cancel/${currentGenerationId}`, {
                 method: 'POST'
@@ -685,9 +646,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (!data.success) {
                     console.error('Error cancelling generation:', data.error);
                 }
+                // Reset UI state regardless of server response
+                currentGenerationId = null;
+                domElements.submitBtn.disabled = false;
+                domElements.submitBtn.style.display = 'block';
+                domElements.cancelBtn.style.display = 'none';
             })
             .catch(error => {
                 console.error('Error cancelling generation:', error);
+                // Reset UI state on error
+                currentGenerationId = null;
+                domElements.submitBtn.disabled = false;
+                domElements.submitBtn.style.display = 'block';
+                domElements.cancelBtn.style.display = 'none';
             });
         }
     });
@@ -809,3 +780,38 @@ function showDeleteDocumentModal(docId, docName) {
     const modalInstance = new bootstrap.Modal(modal);
     modalInstance.show();
 }
+
+// ============================
+// Event Listeners
+// ============================
+
+// Update isMobile on resize
+window.addEventListener('resize', () => {
+    const wasMobile = isMobile;
+    isMobile = window.innerWidth <= 768;
+    
+    // Reset sidebar state when switching between mobile and desktop
+    if (wasMobile !== isMobile) {
+        closeMobileSidebar();
+    }
+});
+
+function toggleMobileSidebar() {
+    domElements.sidebar.classList.toggle('show');
+    document.body.classList.toggle('sidebar-open');
+    backdrop.classList.toggle('show');
+}
+
+function closeMobileSidebar() {
+    domElements.sidebar.classList.remove('show');
+    document.body.classList.remove('sidebar-open');
+    backdrop.classList.remove('show');
+}
+
+// Close sidebar when selecting a document on mobile
+domElements.documentList.addEventListener('click', (e) => {
+    const documentItem = e.target.closest('.document-item');
+    if (documentItem && isMobile) {
+        closeMobileSidebar();
+    }
+});
