@@ -40,9 +40,9 @@ A simple writing/editing app for using base LLMs in a classic-gpt3-like text san
 
 2. **Creating Content**:
    - Click "New Document" to start writing
-   - Type your text in the main editor
-   - Press Ctrl+Enter (or Cmd+Enter) to get AI suggestions
-   - Accept or reject suggestions as needed
+   - Type anything in the main editor
+   - Press Ctrl+Enter (or Cmd+Enter) to get completions
+   - Accept or reject suggestions as needed (via simple text editing)
 
 3. **Managing Documents**:
    - Use the sidebar to switch between documents
