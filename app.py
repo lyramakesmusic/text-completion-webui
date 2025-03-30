@@ -28,7 +28,7 @@ DOCUMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'conten
 # Default configuration
 DEFAULT_CONFIG = {
     'token': '',
-    'model': 'meta-llama/llama-3.1-405b',
+    'model': 'deepseek/deepseek-v3-base:free',
     'endpoint': 'https://openrouter.ai/api/v1/completions',
     'temperature': 1.0,
     'min_p': 0.01,
@@ -298,21 +298,35 @@ def stream_generator(generation_id):
     
     try:
         with requests.post(config['endpoint'], headers=headers, json=payload, stream=True) as response:
-            # If primary model fails with a 4xx error, try the fallback model
+            # If primary model fails with a 4xx error, try the first fallback model
             if response.status_code >= 400 and response.status_code < 500:
-                logger.info(f"Primary model failed with status {response.status_code}, trying fallback model")
+                logger.info(f"Primary model failed with status {response.status_code}, trying first fallback model")
                 
-                # Fallback model configuration
+                # First fallback model configuration (405b)
                 fallback_payload = payload.copy()
-                fallback_payload['model'] = 'meta-llama/llama-3-70b'
+                fallback_payload['model'] = 'meta-llama/llama-3.1-405b'
                 
                 with requests.post(config['endpoint'], headers=headers, json=fallback_payload, stream=True) as fallback_response:
-                    if fallback_response.status_code != 200:
-                        yield "data: " + json.dumps({"error": f"Both primary and fallback models failed. Status codes: {response.status_code}, {fallback_response.status_code}"}) + "\n\n"
+                    if fallback_response.status_code >= 400 and fallback_response.status_code < 500:
+                        logger.info(f"First fallback model failed with status {fallback_response.status_code}, trying second fallback model")
+                        
+                        # Second fallback model configuration (70b)
+                        second_fallback_payload = payload.copy()
+                        second_fallback_payload['model'] = 'meta-llama/llama-3-70b'
+                        
+                        with requests.post(config['endpoint'], headers=headers, json=second_fallback_payload, stream=True) as second_fallback_response:
+                            if second_fallback_response.status_code != 200:
+                                yield "data: " + json.dumps({"error": f"All models failed. Status codes: {response.status_code}, {fallback_response.status_code}, {second_fallback_response.status_code}"}) + "\n\n"
+                                return
+                            
+                            # Process the second fallback model response
+                            response = second_fallback_response
+                    elif fallback_response.status_code != 200:
+                        yield "data: " + json.dumps({"error": f"API error: {fallback_response.status_code}"}) + "\n\n"
                         return
-                    
-                    # Process the fallback model response
-                    response = fallback_response
+                    else:
+                        # Process the first fallback model response
+                        response = fallback_response
             elif response.status_code != 200:
                 yield "data: " + json.dumps({"error": f"API error: {response.status_code}"}) + "\n\n"
                 return
