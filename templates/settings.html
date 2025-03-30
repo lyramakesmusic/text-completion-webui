@@ -129,8 +129,8 @@
                             Temperature
                             <span class="value-display" id="temperature-value">{{ config.temperature }}</span>
                         </label>
-                        <input type="range" class="form-range" id="temperature" name="temperature" min="0" max="2" step="0.01" value="{{ config.temperature }}">
-                        <div class="form-text">Controls randomness (0 = deterministic, 2 = maximum creativity)</div>
+                        <input type="range" class="form-range" id="temperature" name="temperature" min="0" max="20" step="0.01" value="{{ config.temperature }}">
+                        <div class="form-text">Controls randomness (0 = deterministic, 20 = maximum creativity)</div>
                     </div>
                     
                     <div class="mb-4">

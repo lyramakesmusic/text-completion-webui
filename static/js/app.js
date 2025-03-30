@@ -499,9 +499,8 @@ function startStreaming(generationId) {
     let generatedText = '';
     const originalText = editor.value;
     
-    // Show cancel and reroll buttons and hide submit button during generation
+    // Show cancel button and hide submit button during generation
     domElements.cancelBtn.style.display = 'block';
-    domElements.rerollBtn.style.display = 'block';
     domElements.submitBtn.style.display = 'none';
     
     const eventSource = new EventSource(`/stream/${generationId}`);
@@ -540,10 +539,13 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide only cancel button
+            // Enable submit button and hide cancel button
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
+            
+            // Show reroll button since we now have a checkpoint
+            domElements.rerollBtn.style.display = 'block';
         }
         
         // Handle error in generation
@@ -552,7 +554,7 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide only cancel button
+            // Enable submit button and hide cancel button
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
@@ -566,7 +568,7 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide only cancel button
+            // Enable submit button and hide cancel button
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
