@@ -174,10 +174,14 @@ function handleTokenSubmit(e) {
     .then(data => {
         console.log('Token response data:', data);
         if (data.success) {
-            // Hide the warning alert
+            // Hide the warning alert with animation
             const warningAlert = document.querySelector('.warning-alert');
             if (warningAlert) {
-                warningAlert.style.display = 'none';
+                warningAlert.classList.add('hidden');
+                // Remove the alert from DOM after animation
+                setTimeout(() => {
+                    warningAlert.remove();
+                }, 300);
             }
             
             // Enable the submit button
