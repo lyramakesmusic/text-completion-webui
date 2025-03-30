@@ -89,6 +89,7 @@ function initEditor() {
         
         // Mark that this edit was from user input
         lastEditFromAPI = false;
+        lastCheckpoint = null;  // Clear the checkpoint when user makes changes
         
         // Save immediately
         lastContent = currentContent;
@@ -539,11 +540,10 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide cancel and reroll buttons
+            // Enable submit button and hide only cancel button
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
-            domElements.rerollBtn.style.display = 'none';
         }
         
         // Handle error in generation
@@ -552,11 +552,10 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide cancel and reroll buttons
+            // Enable submit button and hide only cancel button
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
-            domElements.rerollBtn.style.display = 'none';
             
             // Show error to user
             alert('Error generating text: ' + data.error);
@@ -567,11 +566,10 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide cancel and reroll buttons
+            // Enable submit button and hide only cancel button
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
-            domElements.rerollBtn.style.display = 'none';
         }
     };
     
@@ -580,11 +578,10 @@ function startStreaming(generationId) {
         eventSource.close();
         currentGenerationId = null;
         
-        // Re-enable submit button and hide cancel and reroll buttons
+        // Re-enable submit button and hide only cancel button
         domElements.submitBtn.disabled = false;
         domElements.submitBtn.style.display = 'block';
         domElements.cancelBtn.style.display = 'none';
-        domElements.rerollBtn.style.display = 'none';
     };
 
     // Store EventSource instance for cleanup
@@ -750,7 +747,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 domElements.submitBtn.disabled = false;
                 domElements.submitBtn.style.display = 'block';
                 domElements.cancelBtn.style.display = 'none';
-                domElements.rerollBtn.style.display = 'none';
             })
             .catch(error => {
                 console.error('Error cancelling generation:', error);
@@ -759,7 +755,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 domElements.submitBtn.disabled = false;
                 domElements.submitBtn.style.display = 'block';
                 domElements.cancelBtn.style.display = 'none';
-                domElements.rerollBtn.style.display = 'none';
             });
         }
     });
