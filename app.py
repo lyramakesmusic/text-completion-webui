@@ -55,6 +55,7 @@ DEFAULT_CONFIG = {
     'min_p': 0.01,
     'presence_penalty': 0.1,
     'repetition_penalty': 1.1,
+    'max_tokens': 500,
     'current_document': None,
     'documents': []  # List of document IDs
 }
@@ -320,6 +321,7 @@ def generate_text(prompt, model_params):
         'min_p': model_params['min_p'],
         'presence_penalty': model_params['presence_penalty'],
         'repetition_penalty': model_params['repetition_penalty'],
+        'max_tokens': model_params['max_tokens'],
         'stream': False
     }
     
@@ -352,6 +354,7 @@ def stream_generator(generation_id):
         'min_p': config['min_p'],
         'presence_penalty': config['presence_penalty'],
         'repetition_penalty': config['repetition_penalty'],
+        'max_tokens': config['max_tokens'],
         'stream': True
     }
     
@@ -473,6 +476,7 @@ def settings():
         config['min_p'] = float(request.form.get('min_p', config['min_p']))
         config['presence_penalty'] = float(request.form.get('presence_penalty', config['presence_penalty']))
         config['repetition_penalty'] = float(request.form.get('repetition_penalty', config['repetition_penalty']))
+        config['max_tokens'] = int(request.form.get('max_tokens', config['max_tokens']))
         save_config(config)
         return jsonify({'success': True})
     
