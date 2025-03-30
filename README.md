@@ -4,7 +4,7 @@ A simple writing/editing app for using base LLMs in a classic-gpt3-like text san
 
 ## Features
 
-- Text completion using llama3-405b-base via OpenRouter
+- Text completion using `deepseek-v3-base` or `llama3-405b-base` via OpenRouter
 - Simple document management (create, edit, rename, delete)
 - Quick keyboard shortcuts (Ctrl+Enter or Cmd+Enter for completions)
 - Automatically saves as you type
