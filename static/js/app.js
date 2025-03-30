@@ -6,6 +6,7 @@ let currentDocument = null;
 let currentGenerationId = null;
 let lastContent = '';
 let isMobile = window.innerWidth <= 768;
+let lastCheckpoint = null;  // Store the content checkpoint before generation
 
 // Cache DOM elements
 const domElements = {
@@ -18,6 +19,7 @@ const domElements = {
     currentDocumentName: document.getElementById('current-document-name'),
     submitBtn: document.getElementById('submit-btn'),
     cancelBtn: document.getElementById('cancel-btn'),
+    rerollBtn: document.getElementById('reroll-btn'),
     clearBtn: document.getElementById('clear-btn'),
     newDocumentBtn: document.getElementById('new-document-btn'),
     emptyNewDocBtn: document.getElementById('empty-new-doc-btn'),
@@ -485,8 +487,9 @@ function startStreaming(generationId) {
     let generatedText = '';
     const originalText = editor.value;
     
-    // Show cancel button and hide submit button during generation
+    // Show cancel and reroll buttons and hide submit button during generation
     domElements.cancelBtn.style.display = 'block';
+    domElements.rerollBtn.style.display = 'block';
     domElements.submitBtn.style.display = 'none';
     
     const eventSource = new EventSource(`/stream/${generationId}`);
@@ -522,10 +525,11 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide cancel button
+            // Enable submit button and hide cancel and reroll buttons
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
+            domElements.rerollBtn.style.display = 'none';
         }
         
         // Handle error in generation
@@ -534,10 +538,11 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide cancel button
+            // Enable submit button and hide cancel and reroll buttons
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
+            domElements.rerollBtn.style.display = 'none';
             
             // Show error to user
             alert('Error generating text: ' + data.error);
@@ -548,10 +553,11 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide cancel button
+            // Enable submit button and hide cancel and reroll buttons
             domElements.submitBtn.disabled = false;
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
+            domElements.rerollBtn.style.display = 'none';
         }
     };
     
@@ -560,10 +566,11 @@ function startStreaming(generationId) {
         eventSource.close();
         currentGenerationId = null;
         
-        // Re-enable submit button and hide cancel button
+        // Re-enable submit button and hide cancel and reroll buttons
         domElements.submitBtn.disabled = false;
         domElements.submitBtn.style.display = 'block';
         domElements.cancelBtn.style.display = 'none';
+        domElements.rerollBtn.style.display = 'none';
     };
 
     // Store EventSource instance for cleanup
@@ -622,6 +629,9 @@ document.addEventListener('DOMContentLoaded', function() {
             .map(line => line.trimEnd())
             .join('\n')
             .trimEnd(); // Also trim any trailing newlines at the end of the document
+        
+        // Save checkpoint before generation
+        lastCheckpoint = content;
         
         // Start generation request
         fetch('/submit', {
@@ -726,6 +736,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 domElements.submitBtn.disabled = false;
                 domElements.submitBtn.style.display = 'block';
                 domElements.cancelBtn.style.display = 'none';
+                domElements.rerollBtn.style.display = 'none';
             })
             .catch(error => {
                 console.error('Error cancelling generation:', error);
@@ -734,7 +745,66 @@ document.addEventListener('DOMContentLoaded', function() {
                 domElements.submitBtn.disabled = false;
                 domElements.submitBtn.style.display = 'block';
                 domElements.cancelBtn.style.display = 'none';
+                domElements.rerollBtn.style.display = 'none';
             });
+        }
+    });
+
+    // Add reroll button handler
+    domElements.rerollBtn.addEventListener('click', function() {
+        if (currentGenerationId) {
+            // Close the EventSource first
+            if (window.currentEventSource) {
+                window.currentEventSource.close();
+            }
+            
+            // Send cancel request to server
+            fetch(`/cancel/${currentGenerationId}`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    console.error('Error cancelling generation:', data.error);
+                }
+                // Reset UI state regardless of server response
+                currentGenerationId = null;
+                domElements.submitBtn.disabled = false;
+                domElements.submitBtn.style.display = 'block';
+                domElements.cancelBtn.style.display = 'none';
+                
+                // Restore content to last checkpoint
+                if (lastCheckpoint !== null) {
+                    editor.value = lastCheckpoint;
+                    lastContent = lastCheckpoint;
+                    saveCurrentDocument();
+                }
+                
+                // Start a new generation with the original content
+                domElements.submitBtn.click();
+            })
+            .catch(error => {
+                console.error('Error cancelling generation:', error);
+                // Reset UI state on error
+                currentGenerationId = null;
+                domElements.submitBtn.disabled = false;
+                domElements.submitBtn.style.display = 'block';
+                domElements.cancelBtn.style.display = 'none';
+                
+                // Restore content to last checkpoint on error too
+                if (lastCheckpoint !== null) {
+                    editor.value = lastCheckpoint;
+                    lastContent = lastCheckpoint;
+                    saveCurrentDocument();
+                }
+            });
+        } else if (lastCheckpoint !== null) {
+            // If no generation is in progress but we have a checkpoint,
+            // just restore the content and start a new generation
+            editor.value = lastCheckpoint;
+            lastContent = lastCheckpoint;
+            saveCurrentDocument();
+            domElements.submitBtn.click();
         }
     });
 });
