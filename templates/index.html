@@ -569,6 +569,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.1/mode/markdown/markdown.min.js"></script>
     
     <!-- Application JavaScript -->
+    <script>
+        // Pass config to JavaScript
+        window.config = {{ config|tojson|safe }};
+    </script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

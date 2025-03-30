@@ -7,6 +7,7 @@ let currentGenerationId = null;
 let lastContent = '';
 let isMobile = window.innerWidth <= 768;
 let lastCheckpoint = null;  // Store the content checkpoint before generation
+let lastEditFromAPI = false;  // Track if the last edit was from API generation
 
 // Cache DOM elements
 const domElements = {
@@ -58,8 +59,6 @@ function initEditor() {
     textarea.className = 'editor-textarea';
     textarea.style.width = '100%';
     textarea.style.height = '100%';
-    textarea.style.backgroundColor = '#2a2a2a';
-    textarea.style.color = '#fff';
     textarea.style.border = 'none';
     textarea.style.outline = 'none';
     textarea.style.padding = '20px';
@@ -68,6 +67,15 @@ function initEditor() {
     textarea.style.fontFamily = "'Source Code Pro', 'Courier New', monospace";
     textarea.style.lineHeight = '1.6';
     textarea.spellcheck = false;
+    
+    // Apply theme based on config
+    if (window.config && window.config.dark_mode) {
+        textarea.style.backgroundColor = '#2a2a2a';
+        textarea.style.color = '#fff';
+    } else {
+        textarea.style.backgroundColor = '#ffffff';
+        textarea.style.color = '#000';
+    }
     
     editorWrapper.appendChild(textarea);
     editor = textarea;
@@ -78,6 +86,9 @@ function initEditor() {
         
         const currentContent = editor.value;
         if (currentContent === lastContent) return;
+        
+        // Mark that this edit was from user input
+        lastEditFromAPI = false;
         
         // Save immediately
         lastContent = currentContent;
@@ -510,6 +521,9 @@ function startStreaming(generationId) {
             // Update editor with generated text
             editor.value = originalText + generatedText;
             
+            // Mark that this edit was from API
+            lastEditFromAPI = true;
+            
             // Restore cursor and scroll positions
             editor.scrollTop = currentScroll;
             editor.selectionStart = currentSelection.start;
@@ -798,8 +812,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     saveCurrentDocument();
                 }
             });
-        } else if (lastCheckpoint !== null) {
-            // If no generation is in progress but we have a checkpoint,
+        } else if (lastCheckpoint !== null && lastEditFromAPI) {
+            // If no generation is in progress but we have a checkpoint and last edit was from API,
             // just restore the content and start a new generation
             editor.value = lastCheckpoint;
             lastContent = lastCheckpoint;

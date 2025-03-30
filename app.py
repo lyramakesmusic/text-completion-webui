@@ -57,7 +57,8 @@ DEFAULT_CONFIG = {
     'repetition_penalty': 1.1,
     'max_tokens': 500,
     'current_document': None,
-    'documents': []  # List of document IDs
+    'documents': [],  # List of document IDs
+    'dark_mode': True  # Default to dark mode
 }
 
 # Active generation requests
@@ -477,6 +478,7 @@ def settings():
         config['presence_penalty'] = float(request.form.get('presence_penalty', config['presence_penalty']))
         config['repetition_penalty'] = float(request.form.get('repetition_penalty', config['repetition_penalty']))
         config['max_tokens'] = int(request.form.get('max_tokens', config['max_tokens']))
+        config['dark_mode'] = request.form.get('dark_mode') == 'on'  # Convert checkbox value to boolean
         save_config(config)
         return jsonify({'success': True})
     
