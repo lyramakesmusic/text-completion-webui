@@ -21,7 +21,28 @@ app.secret_key = os.urandom(24)  # For session management
 # ============================
 
 # Paths
-CONFIG_DIR = os.path.join(os.path.expanduser('~'), '.openrouter-flask')
+try:
+    home_dir = os.path.expanduser('~')
+    logger.info(f"Home directory resolved to: {home_dir}")
+    CONFIG_DIR = os.path.join(home_dir, '.openrouter-flask')
+    logger.info(f"Config directory path: {CONFIG_DIR}")
+    
+    # Check if directory exists and is writable
+    if os.path.exists(CONFIG_DIR):
+        logger.info(f"Config directory exists at {CONFIG_DIR}")
+        # Check permissions
+        if os.access(CONFIG_DIR, os.W_OK):
+            logger.info("Config directory is writable")
+        else:
+            logger.error("Config directory is not writable")
+    else:
+        logger.info("Config directory does not exist, will create it")
+except Exception as e:
+    logger.error(f"Error resolving home directory: {e}")
+    # Fallback to current directory if home directory resolution fails
+    CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.openrouter-flask')
+    logger.info(f"Using fallback config directory: {CONFIG_DIR}")
+
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
 DOCUMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'content')
 
@@ -48,8 +69,26 @@ write_lock = Lock()
 WRITE_DELAY = 1.0  # seconds
 
 # Ensure directories exist
-os.makedirs(CONFIG_DIR, exist_ok=True)
-os.makedirs(DOCUMENTS_DIR, exist_ok=True)
+try:
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    logger.info(f"Created/verified config directory: {CONFIG_DIR}")
+    # Check permissions after creation
+    if os.access(CONFIG_DIR, os.W_OK):
+        logger.info("Config directory is writable")
+    else:
+        logger.error("Config directory is not writable")
+except Exception as e:
+    logger.error(f"Error creating config directory: {e}")
+    # Try to create in current directory as fallback
+    CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.openrouter-flask')
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    logger.info(f"Created fallback config directory: {CONFIG_DIR}")
+
+try:
+    os.makedirs(DOCUMENTS_DIR, exist_ok=True)
+    logger.info(f"Created/verified documents directory: {DOCUMENTS_DIR}")
+except Exception as e:
+    logger.error(f"Error creating documents directory: {e}")
 
 # ============================
 # Configuration Functions
@@ -61,10 +100,18 @@ def load_config():
     
     if os.path.exists(CONFIG_FILE):
         try:
+            logger.info(f"Loading config from {CONFIG_FILE}")
             with open(CONFIG_FILE, 'r') as f:
                 saved_config = json.load(f)
+                logger.info(f"Loaded config: {json.dumps(saved_config, indent=2)}")
                 config.update(saved_config)
             logger.info("Configuration loaded successfully")
+            
+            # Verify token is loaded correctly
+            if config.get('token'):
+                logger.info("Token is present in config")
+            else:
+                logger.warning("No token found in config")
         except Exception as e:
             logger.error(f"Error loading configuration: {e}")
     else:
@@ -76,9 +123,21 @@ def load_config():
 def save_config(config):
     """Save application configuration to file"""
     try:
+        logger.info(f"Saving config to {CONFIG_FILE}")
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=2)
-        logger.info("Configuration saved successfully")
+        logger.info(f"Configuration saved successfully to {CONFIG_FILE}")
+        
+        # Verify file was created and is readable
+        if os.path.exists(CONFIG_FILE):
+            logger.info("Config file exists after save")
+            if os.access(CONFIG_FILE, os.R_OK):
+                logger.info("Config file is readable")
+            else:
+                logger.error("Config file is not readable")
+        else:
+            logger.error("Config file was not created")
+            
         return True
     except Exception as e:
         logger.error(f"Error saving configuration: {e}")
@@ -384,6 +443,7 @@ def stream_generator(generation_id):
 def index():
     """Render the main application page"""
     token_set = bool(config['token'])
+    logger.info(f"Token set status: {token_set}")
     return render_template('index.html', token_set=token_set, config=config)
 
 @app.route('/set_token', methods=['POST'])
@@ -391,11 +451,17 @@ def set_token():
     """Set the API token"""
     token = request.form.get('token')
     if not token:
+        logger.warning("No token provided in request")
         return jsonify({'success': False, 'error': 'No token provided'})
     
+    logger.info("Setting new token")
     config['token'] = token
-    save_config(config)
-    return jsonify({'success': True})
+    if save_config(config):
+        logger.info("Token saved successfully")
+        return jsonify({'success': True})
+    else:
+        logger.error("Failed to save token")
+        return jsonify({'success': False, 'error': 'Failed to save token'})
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():

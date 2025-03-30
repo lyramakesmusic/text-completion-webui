@@ -23,7 +23,8 @@ const domElements = {
     emptyNewDocBtn: document.getElementById('empty-new-doc-btn'),
     documentNameForm: document.getElementById('document-name-form'),
     renameDocumentForm: document.getElementById('rename-document-form'),
-    confirmDeleteBtn: document.getElementById('confirm-delete-btn')
+    confirmDeleteBtn: document.getElementById('confirm-delete-btn'),
+    tokenForm: document.getElementById('token-form')
 };
 
 // Create backdrop element
@@ -136,6 +137,71 @@ function saveCurrentDocument() {
     })
     .catch(error => {
         console.error('Error saving document:', error);
+    });
+}
+
+// ============================
+// Token Management
+// ============================
+
+/**
+ * Handle token form submission
+ */
+function handleTokenSubmit(e) {
+    e.preventDefault();
+    const tokenInput = document.getElementById('token-input');
+    const token = tokenInput.value.trim();
+    
+    if (!token) {
+        alert('Please enter an API token');
+        return;
+    }
+    
+    console.log('Submitting token...');
+    fetch('/set_token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            'token': token
+        })
+    })
+    .then(response => {
+        console.log('Token response status:', response.status);
+        return response.json();
+    })
+    .then(data => {
+        console.log('Token response data:', data);
+        if (data.success) {
+            // Hide the warning alert
+            const warningAlert = document.querySelector('.warning-alert');
+            if (warningAlert) {
+                warningAlert.style.display = 'none';
+            }
+            
+            // Enable the submit button
+            domElements.submitBtn.disabled = false;
+            
+            // Close the modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('tokenModal'));
+            if (modal) {
+                modal.hide();
+            }
+            
+            // Clear the input
+            tokenInput.value = '';
+            
+            // Reload the page to ensure all state is updated
+            window.location.reload();
+        } else {
+            console.error('Error setting token:', data.error);
+            alert('Error setting token: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error setting token:', error);
+        alert('Error setting token: ' + error.message);
     });
 }
 
@@ -533,6 +599,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (domElements.clearBtn) {
         domElements.clearBtn.remove();
         delete domElements.clearBtn;
+    }
+    
+    // Add token form handler
+    if (domElements.tokenForm) {
+        domElements.tokenForm.addEventListener('submit', handleTokenSubmit);
     }
     
     domElements.submitBtn.addEventListener('click', function() {
