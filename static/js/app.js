@@ -8,6 +8,7 @@ let lastContent = '';
 let isMobile = window.innerWidth <= 768;
 let lastCheckpoint = null;  // Store the content checkpoint before generation
 let lastEditFromAPI = false;  // Track if the last edit was from API generation
+let errorToast = null;  // Store the toast instance
 
 // Cache DOM elements
 const domElements = {
@@ -27,7 +28,9 @@ const domElements = {
     documentNameForm: document.getElementById('document-name-form'),
     renameDocumentForm: document.getElementById('rename-document-form'),
     confirmDeleteBtn: document.getElementById('confirm-delete-btn'),
-    tokenForm: document.getElementById('token-form')
+    tokenForm: document.getElementById('token-form'),
+    errorToast: document.getElementById('error-toast'),
+    errorToastBody: document.getElementById('error-toast-body')
 };
 
 // Create backdrop element
@@ -121,10 +124,23 @@ function initEditor() {
     });
 }
 
+// Add debounce function at the top with other utility functions
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
 /**
  * Save the current document content to the server
  */
-function saveCurrentDocument() {
+const saveCurrentDocument = debounce(function() {
     if (!currentDocument || !editor) return;
     
     const content = editor.value;
@@ -143,16 +159,10 @@ function saveCurrentDocument() {
             content: content
         })
     })
-    .then(response => response.json())
-    .then(data => {
-        if (!data.success) {
-            console.error('Error saving document:', data.error);
-        }
-    })
     .catch(error => {
         console.error('Error saving document:', error);
     });
-}
+}, 500); // Debounce for 500ms
 
 // ============================
 // Token Management
@@ -236,20 +246,16 @@ function loadDocuments() {
             if (!response.ok) {
                 throw new Error('Network response was not ok');
             }
-            return response.text();
+            return response.json();
         })
-        .then(text => {
-            // Remove any potential extra closing braces
-            text = text.replace(/\}+$/, '}');
-            const data = JSON.parse(text);
-            
+        .then(data => {
             if (!data.success) {
                 console.error('Error loading documents:', data.error);
                 showEmptyState();
                 return;
             }
 
-            // Always render the document list first
+            // Always render the document list first for better responsiveness
             renderDocumentList(data.documents, data.current_document);
             
             // Handle empty document list
@@ -366,21 +372,26 @@ function renderDocumentList(documents, currentDocId) {
  * @param {String} docId - Document ID to load
  */
 function loadDocument(docId) {
+    // Update UI immediately for better responsiveness
+    hideEmptyState();
+    highlightActiveDocument(docId);
+    
+    // Set current document on server asynchronously
+    fetch(`/documents/${docId}/set-current`, {
+        method: 'POST'
+    }).catch(error => {
+        console.error('Error setting current document:', error);
+    });
+    
+    // Load document content asynchronously
     fetch(`/documents/${docId}`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
                 currentDocument = data.document;
                 
-                // Update UI
-                hideEmptyState();
+                // Update document name
                 updateCurrentDocumentName(currentDocument.name);
-                highlightActiveDocument(docId);
-                
-                // Set current document on server silently
-                fetch(`/documents/${docId}/set-current`, {
-                    method: 'POST'
-                });
                 
                 // Initialize or update editor with document content
                 if (!editor) {
@@ -559,8 +570,8 @@ function startStreaming(generationId) {
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
             
-            // Show error to user
-            alert('Error generating text: ' + data.error);
+            // Show error toast
+            showError(data.error);
         }
         
         // Handle cancellation
@@ -580,10 +591,13 @@ function startStreaming(generationId) {
         eventSource.close();
         currentGenerationId = null;
         
-        // Re-enable submit button and hide only cancel button
+        // Re-enable submit button and hide cancel button
         domElements.submitBtn.disabled = false;
         domElements.submitBtn.style.display = 'block';
         domElements.cancelBtn.style.display = 'none';
+        
+        // Show error toast
+        showError('Connection error occurred. Please try again.');
     };
 
     // Store EventSource instance for cleanup
@@ -763,60 +777,36 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Add reroll button handler
     domElements.rerollBtn.addEventListener('click', function() {
+        if (!lastCheckpoint) return;
+        
+        // Immediately restore content for better responsiveness
+        editor.value = lastCheckpoint;
+        lastContent = lastCheckpoint;
+        saveCurrentDocument();
+        
+        // If there's an active generation, cancel it asynchronously
         if (currentGenerationId) {
             // Close the EventSource first
             if (window.currentEventSource) {
                 window.currentEventSource.close();
             }
             
-            // Send cancel request to server
+            // Send cancel request to server asynchronously
             fetch(`/cancel/${currentGenerationId}`, {
                 method: 'POST'
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (!data.success) {
-                    console.error('Error cancelling generation:', data.error);
-                }
-                // Reset UI state regardless of server response
-                currentGenerationId = null;
-                domElements.submitBtn.disabled = false;
-                domElements.submitBtn.style.display = 'block';
-                domElements.cancelBtn.style.display = 'none';
-                
-                // Restore content to last checkpoint
-                if (lastCheckpoint !== null) {
-                    editor.value = lastCheckpoint;
-                    lastContent = lastCheckpoint;
-                    saveCurrentDocument();
-                }
-                
-                // Start a new generation with the original content
-                domElements.submitBtn.click();
-            })
-            .catch(error => {
+            }).catch(error => {
                 console.error('Error cancelling generation:', error);
-                // Reset UI state on error
-                currentGenerationId = null;
-                domElements.submitBtn.disabled = false;
-                domElements.submitBtn.style.display = 'block';
-                domElements.cancelBtn.style.display = 'none';
-                
-                // Restore content to last checkpoint on error too
-                if (lastCheckpoint !== null) {
-                    editor.value = lastCheckpoint;
-                    lastContent = lastCheckpoint;
-                    saveCurrentDocument();
-                }
             });
-        } else if (lastCheckpoint !== null && lastEditFromAPI) {
-            // If no generation is in progress but we have a checkpoint and last edit was from API,
-            // just restore the content and start a new generation
-            editor.value = lastCheckpoint;
-            lastContent = lastCheckpoint;
-            saveCurrentDocument();
-            domElements.submitBtn.click();
+            
+            // Reset UI state immediately
+            currentGenerationId = null;
+            domElements.submitBtn.disabled = false;
+            domElements.submitBtn.style.display = 'block';
+            domElements.cancelBtn.style.display = 'none';
         }
+        
+        // Start a new generation immediately
+        domElements.submitBtn.click();
     });
 });
 
@@ -971,3 +961,20 @@ domElements.documentList.addEventListener('click', (e) => {
         closeMobileSidebar();
     }
 });
+
+// Initialize error toast
+function initErrorToast() {
+    errorToast = new bootstrap.Toast(domElements.errorToast, {
+        animation: true,
+        autohide: true,
+        delay: 5000
+    });
+}
+
+function showError(message) {
+    if (!errorToast) {
+        initErrorToast();
+    }
+    domElements.errorToastBody.textContent = message;
+    errorToast.show();
+}
