@@ -899,14 +899,15 @@ function hideEmptyState() {
  * @param {String} currentName - Current document name
  */
 function showRenameDocumentModal(docId, currentName) {
-    const modal = document.getElementById('rename-document-modal');
-    const form = modal.querySelector('form');
-    const input = form.querySelector('input[name="new-document-name"]');
-    
-    form.dataset.documentId = docId;
+    const modal = document.getElementById('renameDocumentModal');
+    const form = modal.querySelector('#rename-document-form');
+    const input = form.querySelector('#rename-document-input');
+
+    form.querySelector('#rename-document-id').value = docId;
     input.value = currentName;
-    
-    bootstrap.Modal.getInstance(modal).show();
+
+    const modalInstance = new bootstrap.Modal(modal);
+    modalInstance.show();
     input.select();
 }
 
