@@ -49,7 +49,7 @@ DOCUMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'conten
 # Default configuration
 DEFAULT_CONFIG = {
     'token': '',
-    'model': 'deepseek/deepseek-v3-base:free',
+    'model': deepseek/deepseek-r1-0528:free',
     'endpoint': 'https://openrouter.ai/api/v1/completions',
     'temperature': 1.0,
     'min_p': 0.01,
