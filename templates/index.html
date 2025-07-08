@@ -17,6 +17,337 @@
     
     <!-- Application Styles -->
     <style>
+        /* CSS Variables - Dark Mode as Default */
+        :root {
+            --bg-primary: #141516;
+            --bg-secondary: #202224;
+            --text-primary: #d4d1cb;
+            --text-secondary: #aca59a;
+            --border-color: #333333;
+            --hover-bg: #262a2b;
+            --active-bg: #153e72;
+            --active-text: #4faeff;
+            --btn-blue: #0d6efd;
+        }
+        
+        body.light-mode {
+            --bg-primary: #fff;
+            --bg-secondary: #f8f9fa;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --border-color: #dee2e6;
+            --hover-bg: #e9ecef;
+            --active-bg: #cfe2ff;
+            --active-text: #0d6efd;
+            --btn-blue: #0d6efd;
+        }
+        
+        /* Light mode specific overrides */
+        body.light-mode .sidebar,
+        body.light-mode .sidebar-header,
+        body.light-mode .sidebar-footer,
+        body.light-mode .app-header,
+        body.light-mode .button-row {
+            border-color: #dee2e6 !important;
+        }
+        
+        body.light-mode .sidebar-right {
+            border-left-color: #dee2e6 !important;
+        }
+        
+        /* Apply CSS variables throughout */
+        .app-header,
+        .button-row,
+        .empty-state,
+        .sidebar-footer {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        .app-header,
+        .button-row,
+        .sidebar-header,
+        .sidebar-footer {
+            border-color: var(--border-color);
+        }
+        
+        .document-item:hover {
+            background-color: var(--hover-bg);
+        }
+        
+        .document-item.active {
+            background-color: var(--active-bg);
+            color: var(--active-text);
+        }
+        
+
+        
+
+        
+        /* Clean button styling */
+        .btn {
+            border-radius: 8px;
+            border: 2px solid var(--btn-blue);
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .btn:focus,
+        .btn:focus-visible {
+            outline: 2px solid var(--btn-blue);
+            outline-offset: 2px;
+        }
+        
+        .btn:hover {
+            background-color: var(--active-bg);
+        }
+        
+        .btn-primary {
+            border-color: var(--btn-blue);
+            color: var(--text-primary);
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--active-bg);
+            border-color: var(--btn-blue);
+            color: var(--text-primary);
+        }
+        
+        .btn-outline-secondary {
+            color: var(--text-secondary);
+            border-color: var(--btn-blue);
+        }
+        
+        .btn-outline-secondary:hover {
+            background-color: rgba(21, 62, 114, 0.2);
+            border-color: var(--btn-blue);
+            color: var(--text-primary);
+        }
+        
+        .btn-warning {
+            background-color: var(--bg-secondary);
+            border-color: rgb(255, 140, 0);
+            color: var(--text-primary);
+        }
+        
+        .btn-warning:hover {
+            background-color: rgba(255, 140, 0, 0.3);
+            border-color: rgb(255, 140, 0);
+            color: var(--text-primary);
+        }
+        
+        .btn-warning:focus {
+            outline-color: rgb(255, 140, 0);
+        }
+        
+        .btn-danger {
+            border-color: rgb(220, 53, 69);
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background-color: rgba(220, 53, 69, 0.5);
+            border-color: rgb(220, 53, 69);
+            color: white;
+        }
+        
+        .btn-danger:focus {
+            outline-color: rgb(220, 53, 69);
+        }
+        
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+            border-radius: 6px;
+        }
+        
+        /* Round reroll button */
+        #reroll-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 !important;
+            min-width: 40px;
+            max-width: 40px;
+            font-size: 16px;
+        }
+        
+        /* New document buttons with thin outline */
+        #new-document-btn,
+        #empty-new-doc-btn {
+            border-color: var(--border-color);
+        }
+
+        #new-document-btn:hover,
+        #empty-new-doc-btn:hover {
+            border-color: var(--btn-blue);
+        }
+        
+        /* Cancel button in rename modal should be red */
+        #renameDocumentModal .btn-secondary {
+            border-color: rgb(220, 53, 69);
+        }
+        
+        #renameDocumentModal .btn-secondary:hover {
+            background-color: rgba(220, 53, 69, 0.5);
+            border-color: rgb(220, 53, 69);
+            color: white;
+        }
+        
+        /* Base styling - now applies to default dark mode */
+        .form-control {
+            background-color: var(--bg-primary);
+            border-color: var(--border-color);
+            color: var(--text-primary);
+        }
+        
+        .form-range {
+            background-color: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+        
+        .form-control:focus {
+            background-color: var(--bg-primary);
+            border-color: var(--btn-blue);
+            color: var(--text-primary);
+        }
+        
+        .modal-content {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        .modal-header,
+        .modal-footer {
+            border-color: var(--border-color);
+        }
+        
+        .btn-close {
+            filter: invert(1);
+        }
+        
+        .form-text {
+            color: var(--text-secondary);
+        }
+        
+        .dropdown-menu {
+            background-color: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+        
+        .dropdown-item {
+            color: var(--text-primary);
+        }
+        
+        .dropdown-item:hover {
+            background-color: var(--hover-bg);
+            color: var(--text-primary);
+        }
+        
+        /* Toast styling */
+        .toast {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        .toast .bg-success {
+            background-color: #198754 !important;
+        }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 6px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--hover-bg);
+        }
+        
+        ::-webkit-scrollbar-corner {
+            background: var(--bg-secondary);
+        }
+        
+        /* Firefox scrollbar styling */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-color) var(--bg-secondary);
+        }
+        
+        /* Light mode overrides */
+        body.light-mode .btn-close {
+            filter: none;
+        }
+        
+        body.light-mode ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+        
+        body.light-mode ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+        }
+        
+        body.light-mode ::-webkit-scrollbar-thumb:hover {
+            background: var(--hover-bg);
+        }
+        
+        body.light-mode * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-color) var(--bg-secondary);
+        }
+        
+        /* Fix range input colors for both modes */
+        .form-range {
+            background-color: transparent;
+        }
+        
+        .form-range::-webkit-slider-track {
+            background-color: var(--hover-bg);
+            border-radius: 4px;
+            height: 6px;
+            border: none;
+        }
+        
+        .form-range::-moz-range-track {
+            background-color: var(--hover-bg);
+            border-radius: 4px;
+            height: 6px;
+            border: none;
+        }
+        
+        .form-range::-webkit-slider-thumb {
+            background-color: var(--btn-blue);
+            border: none;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            -webkit-appearance: none;
+            cursor: pointer;
+        }
+        
+        .form-range::-moz-range-thumb {
+            background-color: var(--btn-blue);
+            border: none;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
         /* Base Styles */
         html, body {
             height: 100%;
@@ -24,6 +355,9 @@
             padding: 0;
             overflow: hidden;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
         
         /* Layout */
@@ -58,39 +392,77 @@
         /* Sidebar */
         .sidebar {
             width: 300px;
-            background-color: #f8f9fa;
-            border-right: 1px solid #dee2e6;
-            transition: transform 0.3s ease;
+            background-color: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            transition: width 0.2s ease;
             display: flex;
             flex-direction: column;
             overflow: hidden;
             height: 100vh;
+            position: relative;
         }
         
         .sidebar.collapsed {
             width: 0;
         }
         
+        .sidebar-right {
+            border-right: none;
+            border-left: 1px solid var(--border-color);
+        }
+        
+        .sidebar-right.collapsed {
+            width: 0;
+        }
+        
         .sidebar-header {
             padding: 15px;
-            border-bottom: 1px solid #dee2e6;
+            border-bottom: 1px solid var(--border-color);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            min-height: 60px;
+            min-width: 270px; /* 300px - padding */
+            opacity: 1;
+            transition: opacity 0.1s ease;
+            white-space: nowrap;
+        }
+        
+        .sidebar.collapsed .sidebar-header,
+        .sidebar-right.collapsed .sidebar-header {
+            opacity: 0;
+            pointer-events: none;
         }
         
         .sidebar-content {
             flex-grow: 1;
             overflow-y: auto;
             padding: 10px;
+            min-width: 280px; /* 300px - 20px padding */
+            opacity: 1;
+            transition: opacity 0.1s ease;
+        }
+        
+        .sidebar.collapsed .sidebar-content,
+        .sidebar-right.collapsed .sidebar-content {
+            opacity: 0;
+            pointer-events: none;
         }
         
         .sidebar-footer {
-            border-top: 1px solid #dee2e6;
+            border-top: 1px solid var(--border-color);
             padding: 10px;
-            background-color: #f8f9fa;
+            background-color: var(--bg-secondary);
             position: sticky;
             bottom: 0;
+            opacity: 1;
+            transition: opacity 0.1s ease;
+        }
+        
+        .sidebar.collapsed .sidebar-footer,
+        .sidebar-right.collapsed .sidebar-footer {
+            opacity: 0;
+            pointer-events: none;
         }
         
         /* Document List */
@@ -110,14 +482,7 @@
             align-items: center;
         }
         
-        .document-item:hover {
-            background-color: #e9ecef;
-        }
-        
-        .document-item.active {
-            background-color: #cfe2ff;
-            color: #0d6efd;
-        }
+
         
         .document-name {
             white-space: nowrap;
@@ -128,7 +493,6 @@
         
         .document-time {
             font-size: 11px;
-            color: #6c757d;
         }
         
         /* Main Content */
@@ -138,16 +502,29 @@
             flex-direction: column;
             height: 100vh;
             overflow: hidden;
+            position: relative;
         }
         
         /* App Header */
         .app-header {
             display: flex;
             align-items: center;
+            justify-content: space-between;
             padding: 10px 15px;
-            background-color: #f8f9fa;
-            border-bottom: 1px solid #dee2e6;
+            border-bottom: 1px solid var(--border-color);
             height: 60px;
+            position: relative;
+            z-index: 20;
+        }
+        
+        .header-left {
+            display: flex;
+            align-items: center;
+        }
+        
+        .header-right {
+            display: flex;
+            align-items: center;
         }
         
         .app-title {
@@ -159,13 +536,22 @@
         .toggle-sidebar {
             width: 40px;
             height: 40px;
+            min-width: 40px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            background-color: #fff;
-            border: 1px solid #dee2e6;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            background-color: var(--bg-primary);
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+            color: var(--text-primary);
+        }
+        
+        .toggle-sidebar:hover {
+            transform: scale(1.05);
+            background-color: var(--hover-bg);
         }
         
         /* Editor */
@@ -195,8 +581,7 @@
         /* Button Row */
         .button-row {
             padding: 12px 20px;
-            background-color: #f8f9fa;
-            border-top: 1px solid #dee2e6;
+            border-top: 1px solid var(--border-color);
             width: 100%;
             max-width: 800px;
             margin: 0 auto;
@@ -209,10 +594,11 @@
             left: 50%;
             transform: translate(-50%, -50%);
             z-index: 1000;
-            background-color: rgba(255, 255, 255, 0.9);
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
             padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             display: none;
         }
         
@@ -230,7 +616,7 @@
         /* Document Actions */
         .document-actions {
             cursor: pointer;
-            color: #6c757d;
+            color: var(--text-secondary);
             width: 24px;
             height: 24px;
             display: flex;
@@ -240,8 +626,8 @@
         }
         
         .document-actions:hover {
-            background-color: #dee2e6;
-            color: #212529;
+            background-color: var(--hover-bg);
+            color: var(--text-primary);
         }
         
         .dropdown-menu-end {
@@ -258,21 +644,20 @@
             height: 100%;
             padding: 20px;
             text-align: center;
-            color: #6c757d;
+            color: var(--text-secondary);
             width: 100%;
-            background-color: #f8f9fa;
         }
         
         .empty-state i {
             font-size: 64px;
             margin-bottom: 24px;
-            color: #adb5bd;
+            color: var(--text-secondary);
         }
         
         .empty-state h4 {
             font-size: 24px;
             margin-bottom: 16px;
-            color: #495057;
+            color: var(--text-primary);
         }
         
         .empty-state p {
@@ -292,8 +677,111 @@
             border-radius: 8px;
         }
         
+        /* Settings Form Styles */
+        .settings-form {
+            padding: 15px;
+            min-width: 270px;
+        }
+        
+        .settings-form .form-label {
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+        
+        .settings-form .form-range {
+            margin-top: 8px;
+        }
+        
+        .settings-form .form-text {
+            margin-top: 5px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        
+        .settings-form .value-display {
+            font-size: 12px;
+            font-weight: normal;
+            background: transparent;
+            border: 1px solid transparent;
+            padding: 2px 6px;
+            border-radius: 4px;
+            width: 60px;
+            text-align: right;
+            transition: all 0.2s ease;
+            cursor: text;
+            -moz-appearance: textfield; /* Firefox */
+        }
+        
+        /* Remove spin buttons from number inputs */
+        .settings-form .value-display::-webkit-outer-spin-button,
+        .settings-form .value-display::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        
+        .settings-form .value-display:focus {
+            outline: none;
+            border-color: var(--btn-blue);
+            background-color: var(--bg-primary);
+        }
+        
+        /* Settings form value display for default dark mode */
+        .settings-form .value-display {
+            color: var(--active-text);
+        }
+        
+        .settings-form .value-display:hover {
+            background-color: rgba(77, 159, 255, 0.1);
+        }
+        
+        /* Light mode overrides for settings form */
+        body.light-mode .settings-form .value-display {
+            color: var(--btn-blue);
+        }
+        
+        body.light-mode .settings-form .value-display:hover {
+            background-color: rgba(13, 110, 253, 0.05);
+        }
+        
+        .settings-form .mb-4 {
+            margin-bottom: 1.25rem !important;
+        }
+        
+        /* Large screen adjustments */
+        @media (min-width: 1601px) {
+            .sidebar {
+                width: 350px;
+            }
+            
+            .sidebar-header {
+                min-width: 318px; /* 350px - padding */
+            }
+            
+            .sidebar-content {
+                min-width: 330px; /* 350px - padding */
+            }
+            
+            .settings-form {
+                min-width: 320px;
+            }
+        }
+        
+        /* Large screen mobile adjustments */
+        @media (max-width: 1000px) and (min-width: 601px) {
+            .sidebar {
+                width: 320px;
+            }
+            
+            .sidebar-right {
+                width: 320px;
+            }
+        }
+        
         /* Responsive Adjustments */
-        @media (max-width: 768px) {
+        @media (max-width: 1000px) {
             .app-container {
                 flex-direction: column;
                 height: 100%;
@@ -304,14 +792,32 @@
                 top: 0;
                 left: 0;
                 bottom: 0;
-                width: 280px;
+                width: 300px;
                 transform: translateX(-100%);
                 z-index: 1050;
-                border-right: 1px solid #dee2e6;
-                background: #fff;
+                border-right: 1px solid var(--border-color);
+                background: var(--bg-secondary);
+            }
+            
+            .sidebar-right {
+                position: fixed;
+                top: 0;
+                left: auto;
+                right: 0;
+                bottom: 0;
+                width: 300px;
+                transform: translateX(100%);
+                z-index: 1050;
+                border-left: 1px solid var(--border-color);
+                border-right: none;
+                background: var(--bg-secondary);
             }
 
             .sidebar.show {
+                transform: translateX(0);
+            }
+            
+            .sidebar-right.show {
                 transform: translateX(0);
             }
 
@@ -321,7 +827,7 @@
                 left: 0;
                 right: 0;
                 z-index: 1040;
-                background-color: #fff;
+                background-color: var(--bg-secondary);
                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
                 height: 60px;
             }
@@ -363,7 +869,7 @@
                 right: 0;
                 height: 60px;
                 z-index: 1040;
-                background-color: #fff;
+                background-color: var(--bg-secondary);
                 box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
                 padding: 10px 15px;
             }
@@ -396,6 +902,30 @@
             .sidebar-backdrop.show {
                 display: block;
             }
+            
+            /* Touch-friendly expand/collapse arrows */
+            .toggle-sidebar {
+                width: 44px;
+                height: 44px;
+                font-size: 20px;
+            }
+            
+            /* Extra small screens get even larger buttons */
+            @media (max-width: 600px) {
+                .toggle-sidebar {
+                    width: 48px;
+                    height: 48px;
+                    font-size: 22px;
+                }
+                
+                .sidebar {
+                    width: 280px;
+                }
+                
+                .sidebar-right {
+                    width: 280px;
+                }
+            }
         }
     </style>
 </head>
@@ -409,7 +939,7 @@
     {% endif %}
     
     <div class="app-container">
-        <!-- Sidebar -->
+        <!-- Left Sidebar (Documents) -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <h5 class="m-0">Documents</h5>
@@ -422,19 +952,23 @@
                     <!-- Documents will be loaded here -->
                 </ul>
             </div>
-            <div class="sidebar-footer">
-                <a href="/settings" class="btn btn-sm btn-outline-secondary w-100">Settings</a>
-            </div>
         </div>
         
         <!-- Main Content -->
         <div class="main-content">
             <!-- App Header -->
             <div class="app-header">
-                <button class="toggle-sidebar" id="toggle-sidebar">
-                    <i class="bi bi-list"></i>
-                </button>
-                <div class="app-title">Muse</div>
+                <div class="header-left">
+                    <button class="toggle-sidebar" id="toggle-sidebar">
+                        <i class="bi bi-list"></i>
+                    </button>
+                    <div class="app-title"></div>
+                </div>
+                <div class="header-right">
+                    <button class="toggle-sidebar" id="toggle-settings">
+                        <i class="bi bi-gear"></i>
+                    </button>
+                </div>
             </div>
             
             <div class="editor-container" id="editor-container">
@@ -459,14 +993,86 @@
                     </div>
                     <div class="d-flex gap-2">
                         <button type="button" class="btn btn-outline-secondary" id="clear-btn">Clear</button>
-                        <button type="button" class="btn btn-warning" id="reroll-btn">Reroll</button>
+                        <button type="button" class="btn btn-warning" id="reroll-btn"><i class="bi bi-arrow-clockwise"></i></button>
                         <button type="button" class="btn btn-danger" id="cancel-btn" style="display: none;">Cancel</button>
                         <button type="button" class="btn btn-primary" id="submit-btn" {% if not token_set %}disabled{% endif %}>Complete</button>
                     </div>
                 </div>
             </div>
         </div>
+        
+        <!-- Right Sidebar (Settings) -->
+        <div class="sidebar sidebar-right collapsed" id="settings-sidebar">
+            <div class="sidebar-header">
+                <h5 class="m-0">Settings</h5>
+                <button type="button" class="btn-close" id="close-settings" aria-label="Close"></button>
+            </div>
+            <div class="sidebar-content">
+                <form id="settings-form-inline" class="settings-form">
+                    <div class="mb-4">
+                        <label for="model" class="form-label">Model</label>
+                        <input type="text" class="form-control form-control-sm" id="model" name="model" value="{{ config.model }}" required>
+                        <div class="form-text">
+                            deepseek/deepseek-r1-0528:free<br>deepseek/deepseek-v3-base:free<br>thudm/glm-4-32b:free<br>meta-llama/llama-3.1-405b
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="max_tokens" class="form-label">Max Tokens</label>
+                        <input type="number" class="form-control form-control-sm" id="max_tokens" name="max_tokens" min="1" max="4096" value="{{ config.max_tokens }}" required>
+                        <div class="form-text">Maximum tokens to generate (1-4096)</div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="temperature" class="form-label">
+                            Temperature
+                            <input type="number" class="value-display" id="temperature-value" value="{{ config.temperature }}" min="0" max="4" step="0.01">
+                        </label>
+                        <input type="range" class="form-range" id="temperature" name="temperature" min="0" max="4" step="0.01" value="{{ config.temperature }}">
+                        <div class="form-text">Controls randomness (0-4)</div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="min_p" class="form-label">
+                            Min P
+                            <input type="number" class="value-display" id="min_p-value" value="{{ config.min_p }}" min="0" max="0.5" step="0.01">
+                        </label>
+                        <input type="range" class="form-range" id="min_p" name="min_p" min="0" max="0.5" step="0.01" value="{{ config.min_p }}">
+                        <div class="form-text">Filters low-probability tokens</div>
+                    </div>
+                    
+                    <div class="mb-4" style="display: none;">
+                        <label for="presence_penalty" class="form-label">
+                            Presence Penalty
+                            <input type="number" class="value-display" id="presence_penalty-value" value="{{ config.presence_penalty }}" min="0" max="2" step="0.01">
+                        </label>
+                        <input type="range" class="form-range" id="presence_penalty" name="presence_penalty" min="0" max="2" step="0.01" value="{{ config.presence_penalty }}">
+                        <div class="form-text">Penalizes repeated tokens</div>
+                    </div>
+                    
+                    <div class="mb-4" style="display: none;">
+                        <label for="repetition_penalty" class="form-label">
+                            Repetition Penalty
+                            <input type="number" class="value-display" id="repetition_penalty-value" value="{{ config.repetition_penalty }}" min="1" max="2" step="0.01">
+                        </label>
+                        <input type="range" class="form-range" id="repetition_penalty" name="repetition_penalty" min="1" max="2" step="0.01" value="{{ config.repetition_penalty }}">
+                        <div class="form-text">Penalizes repeated phrases</div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="dark_mode" name="dark_mode" {% if config.dark_mode %}checked{% endif %}>
+                            <label class="form-check-label" for="dark_mode">Dark Mode</label>
+                        </div>
+                    </div>
+
+                </form>
+            </div>
+        </div>
     </div>
+    
+    <!-- Sidebar backdrop for mobile -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
     
     <!-- Token Modal -->
     <div class="modal fade" id="tokenModal" tabindex="-1" aria-labelledby="tokenModalLabel" aria-hidden="true">
@@ -573,6 +1179,16 @@
             </div>
             <div class="toast-body" id="error-toast-body">
                 <!-- Error message will be inserted here -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Auto-save Toast Container (Bottom) -->
+    <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3" style="z-index: 1070">
+        <div id="autosave-toast" class="toast" role="alert" aria-live="polite" aria-atomic="true">
+            <div class="toast-body bg-success text-white d-flex align-items-center">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                <span>Auto-saved!</span>
             </div>
         </div>
     </div>
