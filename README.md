@@ -2,6 +2,8 @@
 
 A simple writing/editing app for using base LLMs in a classic-gpt3-like text sandbox. Edit and reroll completions as desired with no setup or interface friction, just a text box and unlimited format potential.
 
+![screenshot of text completion interface showing files list on left, a greentext being edited in middle, and an inference settings menu on the right](interface.png)
+
 ## Features
 
 - Text completion using `deepseek-v3-base` or `llama3-405b-base` via OpenRouter
