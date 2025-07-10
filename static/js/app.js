@@ -65,28 +65,7 @@ function initEditor() {
     const textarea = document.createElement('textarea');
     textarea.id = 'editor-textarea';
     textarea.className = 'editor-textarea';
-    textarea.style.width = '100%';
-    textarea.style.height = '100%';
-    textarea.style.border = 'none';
-    textarea.style.outline = 'none';
-    textarea.style.padding = '20px';
-    textarea.style.resize = 'none';
-    textarea.style.fontSize = '16px';
-    textarea.style.fontFamily = "'Source Code Pro', 'Courier New', monospace";
-    textarea.style.lineHeight = '1.6';
-    textarea.style.transition = 'background-color 0.3s ease, color 0.3s ease';
     textarea.spellcheck = false;
-    
-    // Apply theme based on config (dark mode is now default)
-    if (window.config && !window.config.dark_mode) {
-        // Light mode
-        textarea.style.backgroundColor = '#ffffff';
-        textarea.style.color = '#000';
-    } else {
-        // Dark mode (default)
-        textarea.style.backgroundColor = '#202224';
-        textarea.style.color = '#d4d1cb';
-    }
     
     editorWrapper.appendChild(textarea);
     editor = textarea;
@@ -725,18 +704,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     dark_mode: formData.get('dark_mode') === 'on'
                 });
                 
-                // Update editor colors if needed
-                if (editor) {
-                    if (window.config.dark_mode) {
-                        // Dark mode (default)
-                        editor.style.backgroundColor = '#202224';
-                        editor.style.color = '#d4d1cb';
-                    } else {
-                        // Light mode
-                        editor.style.backgroundColor = '#ffffff';
-                        editor.style.color = '#000';
-                    }
-                }
+                // Editor colors now handled by CSS variables automatically
                 
                 // Silent auto-save (no toast)
             }
@@ -756,20 +724,12 @@ document.addEventListener('DOMContentLoaded', function() {
             if (this.checked) {
                 // Dark mode enabled (remove light-mode class)
                 document.body.classList.remove('light-mode');
-                // Update editor immediately
-                if (editor) {
-                    editor.style.backgroundColor = '#202224';
-                    editor.style.color = '#d4d1cb';
-                }
             } else {
                 // Light mode enabled (add light-mode class)
                 document.body.classList.add('light-mode');
-                // Update editor immediately
-                if (editor) {
-                    editor.style.backgroundColor = '#ffffff';
-                    editor.style.color = '#000';
-                }
             }
+            // Editor colors handled by CSS variables automatically
+            
             // Auto-save immediately for dark mode toggle
             autoSaveSettings();
         });
@@ -1194,14 +1154,70 @@ function initErrorToast() {
     errorToast = new bootstrap.Toast(domElements.errorToast, {
         animation: true,
         autohide: true,
-        delay: 5000
+        delay: 8000  // Longer delay for more detailed messages
     });
+}
+
+/**
+ * Get user-friendly error message based on status code
+ * @param {number} statusCode - HTTP status code
+ * @returns {string} User-friendly error description
+ */
+function getErrorDescription(statusCode) {
+    const errorDescriptions = {
+        400: "Bad Request - Invalid parameters were sent to the API. Please check your model settings and try again.",
+        401: "Invalid Credentials - Your API key is invalid, expired, or disabled. Please check your token in settings.",
+        402: "Insufficient Credits - Your account or API key has run out of credits. Add more credits to your OpenRouter account and try again.",
+        403: "Content Moderation - Your input was flagged by content moderation. Please modify your prompt and try again.",
+        408: "Request Timeout - Your request took too long to process. Try with a shorter prompt or different model.",
+        429: "Rate Limited - You're making requests too quickly. Please wait a moment and try again.",
+        502: "Model Unavailable - The selected model is currently down or returned an invalid response. Try a different model.",
+        503: "No Available Provider - No model provider meets your routing requirements. Try a different model or check your settings."
+    };
+    
+    return errorDescriptions[statusCode] || `Unknown error (Status: ${statusCode})`;
+}
+
+/**
+ * Parse status code from error message
+ * @param {string} message - Error message
+ * @returns {number|null} Parsed status code or null if not found
+ */
+function parseStatusCode(message) {
+    // Look for patterns like "API error: 401" or "Status code: 429"
+    const statusMatch = message.match(/(?:API error|Status(?:\s+code)?|error):\s*(\d{3})/i);
+    if (statusMatch) {
+        return parseInt(statusMatch[1]);
+    }
+    
+    // Look for standalone status codes in message
+    const codeMatch = message.match(/\b(4\d{2}|5\d{2})\b/);
+    if (codeMatch) {
+        return parseInt(codeMatch[1]);
+    }
+    
+    return null;
 }
 
 function showError(message) {
     if (!errorToast) {
         initErrorToast();
     }
-    domElements.errorToastBody.textContent = message;
+    
+    // Parse status code from message
+    const statusCode = parseStatusCode(message);
+    
+    let displayMessage = message;
+    
+    if (statusCode) {
+        const description = getErrorDescription(statusCode);
+        displayMessage = `Error ${statusCode}: ${description}`;
+    } else if (message.toLowerCase().includes('connection error')) {
+        displayMessage = "Connection Error - Unable to connect to the API. Check your internet connection and try again.";
+    } else if (message.toLowerCase().includes('all models failed')) {
+        displayMessage = "All Models Failed - All available models returned errors. This may be a temporary issue with the API service.";
+    }
+    
+    domElements.errorToastBody.textContent = displayMessage;
     errorToast.show();
 }

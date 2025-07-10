@@ -80,8 +80,10 @@
             color: var(--active-text);
         }
         
-
-        
+/* 
+        * {
+            border: 1px solid red;
+        } */
 
         
         /* Clean button styling */
@@ -254,10 +256,18 @@
         .toast {
             background-color: var(--bg-secondary);
             color: var(--text-primary);
+            max-width: 350px;
+            min-width: 300px;
         }
         
         .toast .bg-success {
             background-color: #198754 !important;
+        }
+        
+        .toast-body {
+            word-wrap: break-word;
+            white-space: normal;
+            line-height: 1.4;
         }
         
         /* Scrollbar styling */
@@ -578,6 +588,27 @@
             padding: 20px;
         }
         
+        /* Textarea editor styling */
+        #editor-textarea {
+            width: 100%;
+            height: 100%;
+            border: none;
+            outline: none;
+            padding: 20px;
+            resize: none;
+            font-size: 16px;
+            font-family: 'Source Code Pro', 'Courier New', monospace;
+            line-height: 1.6;
+            transition: background-color 0.3s ease, color 0.3s ease;
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            box-sizing: border-box;
+        }
+        
+        #editor-textarea:focus {
+            outline: none;
+        }
+        
         /* Button Row */
         .button-row {
             padding: 12px 20px;
@@ -834,32 +865,48 @@
 
             .main-content {
                 padding-top: 60px;
-                height: 100%;
-                min-height: 100vh;
+                padding-bottom: 60px; /* Reserve space for fixed bottom bar */
+                height: 100vh;
                 position: relative;
                 z-index: 1;
                 display: flex;
                 flex-direction: column;
-                padding-bottom: calc(60px + 20px);
+                box-sizing: border-box; /* Include padding in height calculation */
             }
 
             .editor-container {
                 flex: 1;
                 position: relative;
-                overflow-y: auto;
-                -webkit-overflow-scrolling: touch;
+                overflow: hidden; /* Prevent container scroll */
+                display: flex;
+                flex-direction: column;
             }
 
             .editor-wrapper {
                 max-width: 100%;
                 padding: 10px;
-                padding-bottom: 20px;
+                flex: 1; /* Take all remaining space */
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
             }
 
-            .CodeMirror {
-                height: auto !important;
+            .CodeMirror,
+            #editor-textarea {
+                flex: 1; /* Fill all available space */
+                height: 100% !important;
                 font-size: 16px;
                 padding: 15px 10px;
+                min-height: 0; /* Allow flex to control size */
+                overflow-y: auto; /* Textarea scrolls internally */
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            /* Mobile-specific textarea adjustments */
+            #editor-textarea {
+                font-size: 16px; /* Prevent zoom on iOS */
+                -webkit-appearance: none;
+                -webkit-text-size-adjust: 100%;
             }
 
             .button-row {
