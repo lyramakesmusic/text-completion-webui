@@ -6,7 +6,7 @@ A simple writing/editing app for using base LLMs in a classic-gpt3-like text san
 
 ## Features
 
-- Text completion using `deepseek-v3-base` or `llama3-405b-base` via OpenRouter
+- Text completion using models like `deepseek-v3-base` or `llama3-405b-base` via OpenRouter
 - Simple document management (create, edit, rename, delete)
 - Quick keyboard shortcuts (Ctrl+Enter or Cmd+Enter for completions)
 - Automatically saves as you type
@@ -24,6 +24,7 @@ A simple writing/editing app for using base LLMs in a classic-gpt3-like text san
    python app.py
    ```
 4. **Open your browser** and go to `http://127.0.0.1:5000`
+5. **Optional:** Install [ngrok](https://ngrok.com/) and run `ngrok http 5000` to get a shareable link accessible on any device
 
 ## Requirements
 
