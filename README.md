@@ -24,7 +24,7 @@ A simple writing/editing app for using base LLMs in a classic-gpt3-like text san
    python app.py
    ```
 4. **Open your browser** and go to `http://127.0.0.1:5000`
-5. **Optional:** Install [ngrok](https://ngrok.com/) and run `ngrok http 5000` to get a shareable link accessible on any device
+5. **Optional:** Install [ngrok](https://download.ngrok.com/) and run `ngrok http 5000` to get a shareable link accessible on any device
 
 ## Requirements
 
