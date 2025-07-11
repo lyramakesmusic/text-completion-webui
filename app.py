@@ -308,6 +308,145 @@ def document_exists(doc_id):
 # API Functions
 # ============================
 
+def is_openrouter_format(endpoint_or_model):
+    """
+    Check if the endpoint/model string is in OpenRouter format (provider/model-id)
+    Returns True for OpenRouter format, False for URL format
+    """
+    # If it contains :// it's definitely a URL
+    if '://' in endpoint_or_model:
+        return False
+    
+    # If it contains a slash but no protocol, it's likely provider/model-id format
+    if '/' in endpoint_or_model and not endpoint_or_model.startswith('http'):
+        return True
+    
+    # If it's just a model name without slash, assume OpenRouter
+    if '/' not in endpoint_or_model:
+        return True
+    
+    # Default to OpenRouter format for anything else
+    return True
+
+def openai_compat_stream_generator(generation_id):
+    """Generator function for OpenAI-compatible API streaming responses"""
+    generation_data = active_generations[generation_id]
+    prompt = generation_data['prompt']
+    
+    # For OpenAI-compatible, the endpoint is the full URL
+    endpoint_url = config['model']  # In URL mode, 'model' field contains the URL
+    
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    
+    # Add authorization if token is provided
+    if config.get('token'):
+        headers['Authorization'] = f"Bearer {config['token']}"
+    
+    # OpenAI-compatible payload format
+    payload = {
+        'prompt': prompt,
+        'temperature': config['temperature'],
+        'min_p': config['min_p'],
+        'presence_penalty': config['presence_penalty'],
+        'repetition_penalty': config['repetition_penalty'],  # Keep as repetition_penalty for OpenAI-compat
+        'max_tokens': config['max_tokens'],
+        'stream': True
+    }
+    
+    try:
+        # Normalize endpoint URL for OpenAI-compatible API
+        if not endpoint_url.endswith('/v1/completions'):
+            if endpoint_url.endswith('/'):
+                endpoint_url = endpoint_url + 'v1/completions'
+            else:
+                endpoint_url = endpoint_url + '/v1/completions'
+        
+        logger.info(f"Making OpenAI-compatible request to: {endpoint_url}")
+        
+        with requests.post(endpoint_url, headers=headers, json=payload, stream=True, timeout=30) as response:
+            if response.status_code != 200:
+                error_msg = f"OpenAI-compatible API error {response.status_code}"
+                try:
+                    error_detail = response.json()
+                    if 'error' in error_detail:
+                        if isinstance(error_detail['error'], dict) and 'message' in error_detail['error']:
+                            error_msg += f": {error_detail['error']['message']}"
+                        else:
+                            error_msg += f": {error_detail['error']}"
+                except:
+                    pass
+                logger.error(error_msg)
+                yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
+                return
+            
+            buffer = ""
+            for chunk in response.iter_content(chunk_size=1024, decode_unicode=False):
+                if not generation_data['active']:
+                    # Generation was cancelled
+                    yield "data: " + json.dumps({"cancelled": True}) + "\n\n"
+                    break
+                
+                if chunk:
+                    buffer += chunk.decode('utf-8', errors='replace')
+                    while True:
+                        # Find the next complete SSE line
+                        line_end = buffer.find('\n')
+                        if line_end == -1:
+                            break
+                        
+                        line = buffer[:line_end].strip()
+                        buffer = buffer[line_end + 1:]
+                        
+                        if line.startswith('data: '):
+                            data_str = line[6:]
+                            if data_str == '[DONE]':
+                                yield "data: " + json.dumps({"done": True}) + "\n\n"
+                                break
+                            
+                            try:
+                                data_obj = json.loads(data_str)
+                                # OpenAI-compatible format: {"choices": [{"text": "..."}]} or {"content": "..."}
+                                content = ""
+                                if "choices" in data_obj and len(data_obj["choices"]) > 0:
+                                    content = data_obj["choices"][0].get("text", "")
+                                else:
+                                    # Some servers might return direct content field
+                                    content = data_obj.get("content", "")
+                                
+                                if content:
+                                    yield "data: " + json.dumps({
+                                        "text": content
+                                    }) + "\n\n"
+                            except json.JSONDecodeError:
+                                pass
+            
+            # Clean up
+            if generation_id in active_generations:
+                del active_generations[generation_id]
+            
+            yield "data: " + json.dumps({"done": True}) + "\n\n"
+            
+    except requests.exceptions.Timeout:
+        error_msg = "OpenAI-compatible API timeout - server took too long to respond"
+        logger.error(error_msg)
+        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
+        if generation_id in active_generations:
+            del active_generations[generation_id]
+    except requests.exceptions.ConnectionError as e:
+        error_msg = "OpenAI-compatible API connection error - unable to connect to server"
+        logger.error(f"{error_msg}: {str(e)} (URL: {endpoint_url})")
+        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
+        if generation_id in active_generations:
+            del active_generations[generation_id]
+    except Exception as e:
+        error_msg = f"OpenAI-compatible API error: {str(e)}"
+        logger.error(f"{error_msg} (URL: {endpoint_url})")
+        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
+        if generation_id in active_generations:
+            del active_generations[generation_id]
+
 def generate_text(prompt, model_params):
     """Generate text via OpenRouter API (non-streaming)"""
     headers = {
@@ -633,7 +772,15 @@ def stream(generation_id):
         return Response("data: " + json.dumps({"error": "Generation not found"}) + "\n\n", 
                        mimetype="text/event-stream")
     
-    response = Response(stream_generator(generation_id), mimetype="text/event-stream")
+    # Determine which backend to use based on model/endpoint format
+    if is_openrouter_format(config['model']):
+        # Use existing OpenRouter backend
+        generator = stream_generator(generation_id)
+    else:
+        # Use OpenAI-compatible backend
+        generator = openai_compat_stream_generator(generation_id)
+    
+    response = Response(generator, mimetype="text/event-stream")
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     return response

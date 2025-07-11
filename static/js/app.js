@@ -1212,6 +1212,12 @@ function showError(message) {
     if (statusCode) {
         const description = getErrorDescription(statusCode);
         displayMessage = `Error ${statusCode}: ${description}`;
+    } else if (message.toLowerCase().includes('openai-compatible api connection error')) {
+        displayMessage = "Local Server Connection Error - Cannot connect to your local server. Make sure it's running and the URL is correct.";
+    } else if (message.toLowerCase().includes('openai-compatible api timeout')) {
+        displayMessage = "Local Server Timeout - Your server took too long to respond. The model might be too large or the server is overloaded.";
+    } else if (message.toLowerCase().includes('openai-compatible api error')) {
+        displayMessage = "Local Server API Error - The server returned an error. Check the server logs for more details.";
     } else if (message.toLowerCase().includes('connection error')) {
         displayMessage = "Connection Error - Unable to connect to the API. Check your internet connection and try again.";
     } else if (message.toLowerCase().includes('all models failed')) {
