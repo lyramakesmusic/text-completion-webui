@@ -368,15 +368,29 @@ def openai_compat_stream_generator(generation_id):
         with requests.post(endpoint_url, headers=headers, json=payload, stream=True, timeout=30) as response:
             if response.status_code != 200:
                 error_msg = f"OpenAI-compatible API error {response.status_code}"
-                try:
-                    error_detail = response.json()
-                    if 'error' in error_detail:
-                        if isinstance(error_detail['error'], dict) and 'message' in error_detail['error']:
-                            error_msg += f": {error_detail['error']['message']}"
-                        else:
-                            error_msg += f": {error_detail['error']}"
-                except:
-                    pass
+                
+                # Add specific status code descriptions
+                if response.status_code == 404:
+                    error_msg = "Error 404: Model or endpoint not found - Check your server URL and model configuration"
+                elif response.status_code == 401:
+                    error_msg = "Error 401: Authentication failed - Check your API token"
+                elif response.status_code == 403:
+                    error_msg = "Error 403: Access forbidden - Your token may not have permission for this model"
+                elif response.status_code == 429:
+                    error_msg = "Error 429: Rate limited - Too many requests, please wait and try again"
+                elif response.status_code == 502:
+                    error_msg = "Error 502: Server unavailable - The model server is down or overloaded"
+                else:
+                    try:
+                        error_detail = response.json()
+                        if 'error' in error_detail:
+                            if isinstance(error_detail['error'], dict) and 'message' in error_detail['error']:
+                                error_msg += f": {error_detail['error']['message']}"
+                            else:
+                                error_msg += f": {error_detail['error']}"
+                    except:
+                        pass
+                
                 logger.error(error_msg)
                 yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
                 return
@@ -502,6 +516,23 @@ def stream_generator(generation_id):
         with requests.post(config['endpoint'], headers=headers, json=payload, stream=True) as response:
             # If primary model fails with a 4xx error, try the first fallback model
             if response.status_code >= 400 and response.status_code < 500:
+                # Add specific error messages for common status codes before trying fallbacks
+                if response.status_code == 404:
+                    yield "data: " + json.dumps({"error": "Error 404: Model not found - Check your model name in settings"}) + "\n\n"
+                    return
+                elif response.status_code == 401:
+                    yield "data: " + json.dumps({"error": "Error 401: Invalid API token - Please check your OpenRouter token"}) + "\n\n"
+                    return
+                elif response.status_code == 402:
+                    yield "data: " + json.dumps({"error": "Error 402: Insufficient credits - Add more credits to your OpenRouter account"}) + "\n\n"
+                    return
+                elif response.status_code == 403:
+                    yield "data: " + json.dumps({"error": "Error 403: Content blocked - Your prompt was flagged by content moderation"}) + "\n\n"
+                    return
+                elif response.status_code == 429:
+                    yield "data: " + json.dumps({"error": "Error 429: Rate limited - Please wait a moment and try again"}) + "\n\n"
+                    return
+                
                 logger.info(f"Primary model failed with status {response.status_code}, trying first fallback model")
                 
                 # First fallback model configuration (405b)
