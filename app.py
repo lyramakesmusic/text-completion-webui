@@ -58,7 +58,10 @@ DEFAULT_CONFIG = {
     'max_tokens': 500,
     'current_document': None,
     'documents': [],  # List of document IDs
-    'dark_mode': True  # Default to dark mode
+    'dark_mode': True,  # Default to dark mode
+    'provider': 'openrouter',  # 'openrouter', 'openai', 'chutes'
+    'custom_api_key': '',  # Optional custom API key for specific providers
+    'openai_endpoint': 'http://localhost:8080/v1'  # Only for OpenAI-compatible provider
 }
 
 # Active generation requests
@@ -333,19 +336,22 @@ def openai_compat_stream_generator(generation_id):
     generation_data = active_generations[generation_id]
     prompt = generation_data['prompt']
     
-    # For OpenAI-compatible, the endpoint is the full URL
-    endpoint_url = config['model']  # In URL mode, 'model' field contains the URL
+    # Use the OpenAI endpoint from config
+    base_url = config.get('openai_endpoint', 'http://localhost:8080/v1')
+    endpoint_url = base_url
     
     headers = {
         'Content-Type': 'application/json'
     }
     
     # Add authorization if token is provided
-    if config.get('token'):
-        headers['Authorization'] = f"Bearer {config['token']}"
+    api_key = config.get('custom_api_key') or config.get('token')
+    if api_key:
+        headers['Authorization'] = f"Bearer {api_key}"
     
     # OpenAI-compatible payload format
     payload = {
+        'model': config['model'],
         'prompt': prompt,
         'temperature': config['temperature'],
         'min_p': config['min_p'],
@@ -357,11 +363,11 @@ def openai_compat_stream_generator(generation_id):
     
     try:
         # Normalize endpoint URL for OpenAI-compatible API
-        if not endpoint_url.endswith('/v1/completions'):
+        if not endpoint_url.endswith('/completions'):
             if endpoint_url.endswith('/'):
-                endpoint_url = endpoint_url + 'v1/completions'
+                endpoint_url = endpoint_url + 'completions'
             else:
-                endpoint_url = endpoint_url + '/v1/completions'
+                endpoint_url = endpoint_url + '/completions'
         
         logger.info(f"Making OpenAI-compatible request to: {endpoint_url}")
         
@@ -456,6 +462,134 @@ def openai_compat_stream_generator(generation_id):
             del active_generations[generation_id]
     except Exception as e:
         error_msg = f"OpenAI-compatible API error: {str(e)}"
+        logger.error(f"{error_msg} (URL: {endpoint_url})")
+        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
+        if generation_id in active_generations:
+            del active_generations[generation_id]
+
+def chutes_stream_generator(generation_id):
+    """Generator function for Chutes API streaming responses"""
+    generation_data = active_generations[generation_id]
+    prompt = generation_data['prompt']
+    
+    # Hardcoded Chutes API endpoint
+    endpoint_url = 'https://llm.chutes.ai/v1/completions'
+    
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    
+    # Use custom API key if provided, otherwise fall back to main token
+    api_key = config.get('custom_api_key') or config.get('token')
+    if api_key:
+        headers['Authorization'] = f"Bearer {api_key}"
+    
+    # Chutes API payload format (similar to OpenAI but with model as HF name)
+    payload = {
+        'model': config['model'],  # HF model name like "microsoft/DialoGPT-medium"
+        'prompt': prompt,
+        'temperature': config['temperature'],
+        'min_p': config['min_p'],
+        'presence_penalty': config['presence_penalty'],
+        'repetition_penalty': config['repetition_penalty'],
+        'max_tokens': config['max_tokens'],
+        'stream': True
+    }
+    
+    try:
+        logger.info(f"Making Chutes API request to: {endpoint_url}")
+        
+        with requests.post(endpoint_url, headers=headers, json=payload, stream=True, timeout=30) as response:
+            if response.status_code != 200:
+                error_msg = f"Chutes API error {response.status_code}"
+                
+                # Add specific status code descriptions
+                if response.status_code == 404:
+                    error_msg = "Error 404: Model not found - Check your model name for Chutes API"
+                elif response.status_code == 401:
+                    error_msg = "Error 401: Authentication failed - Check your Chutes API token"
+                elif response.status_code == 403:
+                    error_msg = "Error 403: Access forbidden - Your token may not have permission for this model"
+                elif response.status_code == 429:
+                    error_msg = "Error 429: Rate limited - Too many requests, please wait and try again"
+                elif response.status_code == 502:
+                    error_msg = "Error 502: Server unavailable - The Chutes API server is down or overloaded"
+                else:
+                    try:
+                        error_detail = response.json()
+                        if 'error' in error_detail:
+                            if isinstance(error_detail['error'], dict) and 'message' in error_detail['error']:
+                                error_msg += f": {error_detail['error']['message']}"
+                            else:
+                                error_msg += f": {error_detail['error']}"
+                    except:
+                        pass
+                
+                logger.error(error_msg)
+                yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
+                return
+            
+            buffer = ""
+            for chunk in response.iter_content(chunk_size=1024, decode_unicode=False):
+                if not generation_data['active']:
+                    # Generation was cancelled
+                    yield "data: " + json.dumps({"cancelled": True}) + "\n\n"
+                    break
+                
+                if chunk:
+                    buffer += chunk.decode('utf-8', errors='replace')
+                    while True:
+                        # Find the next complete SSE line
+                        line_end = buffer.find('\n')
+                        if line_end == -1:
+                            break
+                        
+                        line = buffer[:line_end].strip()
+                        buffer = buffer[line_end + 1:]
+                        
+                        if line.startswith('data: '):
+                            data_str = line[6:]
+                            if data_str == '[DONE]':
+                                yield "data: " + json.dumps({"done": True}) + "\n\n"
+                                break
+                            
+                            try:
+                                data_obj = json.loads(data_str)
+                                # Chutes API format: {"choices": [{"text": "..."}]} or {"content": "..."}
+                                content = ""
+                                if "choices" in data_obj and len(data_obj["choices"]) > 0:
+                                    content = data_obj["choices"][0].get("text", "")
+                                else:
+                                    # Some servers might return direct content field
+                                    content = data_obj.get("content", "")
+                                
+                                if content:
+                                    yield "data: " + json.dumps({
+                                        "text": content
+                                    }) + "\n\n"
+                            except json.JSONDecodeError:
+                                pass
+            
+            # Clean up
+            if generation_id in active_generations:
+                del active_generations[generation_id]
+            
+            yield "data: " + json.dumps({"done": True}) + "\n\n"
+            
+    except requests.exceptions.Timeout:
+        error_msg = "Chutes API timeout - server took too long to respond"
+        logger.error(error_msg)
+        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
+        if generation_id in active_generations:
+            del active_generations[generation_id]
+    except requests.exceptions.ConnectionError as e:
+        error_msg = "Chutes API connection error - unable to connect to server"
+        logger.error(f"{error_msg}: {str(e)} (URL: {endpoint_url})")
+        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
+        if generation_id in active_generations:
+            del active_generations[generation_id]
+    except Exception as e:
+        error_msg = f"Chutes API error: {str(e)}"
         logger.error(f"{error_msg} (URL: {endpoint_url})")
         yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
         if generation_id in active_generations:
@@ -649,6 +783,9 @@ def settings():
         config['repetition_penalty'] = float(request.form.get('repetition_penalty', config['repetition_penalty']))
         config['max_tokens'] = int(request.form.get('max_tokens', config['max_tokens']))
         config['dark_mode'] = request.form.get('dark_mode') == 'on'  # Convert checkbox value to boolean
+        config['provider'] = request.form.get('provider', config.get('provider', 'openrouter'))
+        config['custom_api_key'] = request.form.get('custom_api_key', config.get('custom_api_key', ''))
+        config['openai_endpoint'] = request.form.get('openai_endpoint', config.get('openai_endpoint', 'http://localhost:8080/v1'))
         save_config(config)
         return jsonify({'success': True})
     
@@ -803,13 +940,21 @@ def stream(generation_id):
         return Response("data: " + json.dumps({"error": "Generation not found"}) + "\n\n", 
                        mimetype="text/event-stream")
     
-    # Determine which backend to use based on model/endpoint format
-    if is_openrouter_format(config['model']):
-        # Use existing OpenRouter backend
+    # Determine which backend to use based on provider setting
+    provider = config.get('provider', 'openrouter')
+    
+    if provider == 'chutes':
+        generator = chutes_stream_generator(generation_id)
+    elif provider == 'openai':
+        generator = openai_compat_stream_generator(generation_id)
+    elif provider == 'openrouter':
         generator = stream_generator(generation_id)
     else:
-        # Use OpenAI-compatible backend
-        generator = openai_compat_stream_generator(generation_id)
+        # Fallback to old logic for backwards compatibility
+        if is_openrouter_format(config['model']):
+            generator = stream_generator(generation_id)
+        else:
+            generator = openai_compat_stream_generator(generation_id)
     
     response = Response(generator, mimetype="text/event-stream")
     response.headers['Cache-Control'] = 'no-cache'

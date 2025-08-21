@@ -682,9 +682,142 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
+    // Update model examples and field visibility based on provider
+    function updateModelExamples() {
+        const provider = document.getElementById('provider').value;
+        const modelHelpText = document.getElementById('model-help-text');
+        const openaiEndpointField = document.getElementById('openai-endpoint-field');
+        const modelField = document.getElementById('model-field');
+        const openrouterApiKeyField = document.getElementById('openrouter-api-key-field');
+        const customApiKeyField = document.getElementById('custom-api-key-field');
+        
+        // Show/hide fields based on provider
+        if (provider === 'openrouter') {
+            // For OpenRouter: show only the OpenRouter API key field
+            modelField.style.display = 'none';
+            openaiEndpointField.style.display = 'none';
+            openrouterApiKeyField.style.display = 'block';
+            customApiKeyField.style.display = 'none';
+        } else if (provider === 'openai') {
+            // For OpenAI: show model, endpoint, and custom API key fields
+            modelField.style.display = 'block';
+            openaiEndpointField.style.display = 'block';
+            openrouterApiKeyField.style.display = 'none';
+            customApiKeyField.style.display = 'block';
+            modelHelpText.innerHTML = 'N/A';
+        } else if (provider === 'chutes') {
+            // For Chutes: show model and custom API key fields
+            modelField.style.display = 'block';
+            openaiEndpointField.style.display = 'none';
+            openrouterApiKeyField.style.display = 'none';
+            customApiKeyField.style.display = 'block';
+            modelHelpText.innerHTML = 'deepseek/deepseek-r1-0528:free<br>deepseek/deepseek-v3-base<br>thudm/glm-4-32b:free<br>moonshotai/kimi-k2:free<br>meta-llama/llama-3.1-405b';
+        }
+        
+        // Update model examples for non-OpenRouter providers
+        if (provider === 'openrouter') {
+            // No model field shown for OpenRouter, so no need to update help text
+        } else if (provider === 'openai') {
+            modelHelpText.innerHTML = 'gpt-4<br>gpt-3.5-turbo<br>llama-2-70b-chat<br>(depends on your local server)';
+        } else if (provider === 'chutes') {
+            modelHelpText.innerHTML = 'deepseek/deepseek-r1-0528:free<br>deepseek/deepseek-v3-base<br>thudm/glm-4-32b:free<br>moonshotai/kimi-k2:free<br>meta-llama/llama-3.1-405b';
+        }
+    }
+    
+    // Update main model field examples when accordion is closed
+    function updateMainModelExamples() {
+        const mainModelHelpText = document.getElementById('main-model-help-text');
+        // Always show OpenRouter examples when accordion is closed
+        mainModelHelpText.innerHTML = 'deepseek/deepseek-r1-0528:free<br>deepseek/deepseek-v3-base<br>thudm/glm-4-32b:free<br>moonshotai/kimi-k2:free<br>meta-llama/llama-3.1-405b';
+    }
+    
+    // Sync model values between main and advanced fields
+    function syncModelFields(fromField, toField) {
+        const from = document.getElementById(fromField);
+        const to = document.getElementById(toField);
+        if (from && to && from.value !== to.value) {
+            to.value = from.value;
+        }
+    }
+    
+    // Handle accordion state changes
+    function handleAccordionToggle(isOpen) {
+        const mainModelField = document.getElementById('model-main');
+        const advancedModelField = document.getElementById('model');
+        
+        if (isOpen) {
+            // Accordion opened - disable main field, enable advanced
+            mainModelField.disabled = true;
+            mainModelField.style.opacity = '0.6';
+            if (advancedModelField) {
+                advancedModelField.disabled = false;
+                // Sync value from main to advanced
+                syncModelFields('model-main', 'model');
+            }
+        } else {
+            // Accordion closed - enable main field, assume OpenRouter
+            mainModelField.disabled = false;
+            mainModelField.style.opacity = '1';
+            updateMainModelExamples();
+            if (advancedModelField) {
+                // Sync value from advanced to main
+                syncModelFields('model', 'model-main');
+            }
+        }
+    }
+    
     // Auto-save settings function
     function autoSaveSettings() {
         const formData = new FormData(domElements.settingsFormInline);
+        
+        // Handle OpenRouter API key separately if it's being changed
+        const openrouterApiKey = formData.get('openrouter_api_key');
+        if (openrouterApiKey && openrouterApiKey.trim()) {
+            // Update the main OpenRouter token
+            fetch('/set_token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    'token': openrouterApiKey.trim()
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Clear the field after successful save
+                    document.getElementById('openrouter_api_key').value = '';
+                    
+                    // Enable the submit button if it was disabled
+                    if (domElements.submitBtn.disabled) {
+                        domElements.submitBtn.disabled = false;
+                    }
+                    
+                    // Show success feedback
+                    if (!autosaveToast) {
+                        autosaveToast = new bootstrap.Toast(domElements.autosaveToast, {
+                            animation: true,
+                            autohide: true,
+                            delay: 2000
+                        });
+                    }
+                    const toastBody = domElements.autosaveToast.querySelector('.toast-body span');
+                    toastBody.textContent = 'OpenRouter API key updated!';
+                    autosaveToast.show();
+                } else {
+                    console.error('Error updating OpenRouter token:', data.error);
+                    alert('Error updating OpenRouter API key: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error updating OpenRouter token:', error);
+                alert('Error updating OpenRouter API key: ' + error.message);
+            });
+            
+            // Remove the OpenRouter API key from the form data so it doesn't get saved in settings
+            formData.delete('openrouter_api_key');
+        }
         
         fetch('/settings', {
             method: 'POST',
@@ -701,7 +834,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     presence_penalty: parseFloat(formData.get('presence_penalty')),
                     repetition_penalty: parseFloat(formData.get('repetition_penalty')),
                     max_tokens: parseInt(formData.get('max_tokens')),
-                    dark_mode: formData.get('dark_mode') === 'on'
+                    dark_mode: formData.get('dark_mode') === 'on',
+                    provider: formData.get('provider'),
+                    custom_api_key: formData.get('custom_api_key'),
+                    openai_endpoint: formData.get('openai_endpoint')
                 });
                 
                 // Editor colors now handled by CSS variables automatically
@@ -738,6 +874,57 @@ document.addEventListener('DOMContentLoaded', function() {
     // Auto-save for all form inputs
     domElements.settingsFormInline.addEventListener('input', debouncedAutoSave);
     domElements.settingsFormInline.addEventListener('change', debouncedAutoSave);
+    
+    // Provider change handler
+    const providerSelect = document.getElementById('provider');
+    if (providerSelect) {
+        providerSelect.addEventListener('change', function() {
+            updateModelExamples();
+            debouncedAutoSave();
+        });
+        
+        // Initialize model examples on page load
+        updateModelExamples();
+    }
+    
+    // Main model input change handler
+    const mainModelInput = document.getElementById('model-main');
+    if (mainModelInput) {
+        mainModelInput.addEventListener('input', function() {
+            // Sync to advanced field if it exists
+            syncModelFields('model-main', 'model');
+            debouncedAutoSave();
+        });
+    }
+    
+    // Advanced model input change handler
+    const modelInput = document.getElementById('model');
+    if (modelInput) {
+        modelInput.addEventListener('input', function() {
+            // Sync to main field if accordion is open
+            const accordion = document.getElementById('advancedCollapse');
+            if (accordion && accordion.classList.contains('show')) {
+                syncModelFields('model', 'model-main');
+            }
+            debouncedAutoSave();
+        });
+    }
+    
+    // Accordion event listeners
+    const accordionElement = document.getElementById('advancedCollapse');
+    if (accordionElement) {
+        accordionElement.addEventListener('shown.bs.collapse', function() {
+            handleAccordionToggle(true);
+        });
+        
+        accordionElement.addEventListener('hidden.bs.collapse', function() {
+            handleAccordionToggle(false);
+        });
+        
+        // Initialize state based on current accordion state
+        const isOpen = accordionElement.classList.contains('show');
+        handleAccordionToggle(isOpen);
+    }
     
     // Ctrl+S handler to show "Autosaved on edit" toast
     document.addEventListener('keydown', function(e) {
