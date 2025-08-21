@@ -422,7 +422,7 @@ def openai_compat_stream_generator(generation_id):
                         if line.startswith('data: '):
                             data_str = line[6:]
                             if data_str == '[DONE]':
-                                yield "data: " + json.dumps({"done": True}) + "\n\n"
+                                # Don't send done event yet - auto-rename check will handle it
                                 break
                             
                             try:
@@ -442,7 +442,22 @@ def openai_compat_stream_generator(generation_id):
                             except json.JSONDecodeError:
                                 pass
             
-            # Clean up
+            # Check for auto-rename BEFORE sending done event
+            generation_data = active_generations.get(generation_id)
+            if generation_data and generation_data.get('document_id'):
+                doc_id = generation_data['document_id']
+                document = load_document(doc_id)
+                if document and document.get('name') == 'Untitled' and document.get('content'):
+                    # Auto-rename if document is still named "Untitled" and has content
+                    try:
+                        new_name = generate_document_name(document['content'])
+                        if new_name and new_name != 'Untitled':
+                            success, updated_doc = update_document_metadata(doc_id, new_name)
+                            if success:
+                                yield "data: " + json.dumps({"auto_renamed": True, "new_name": new_name}) + "\n\n"
+                    except Exception as e:
+                        logger.error(f"Error during auto-rename: {e}")
+            
             if generation_id in active_generations:
                 del active_generations[generation_id]
             
@@ -550,7 +565,7 @@ def chutes_stream_generator(generation_id):
                         if line.startswith('data: '):
                             data_str = line[6:]
                             if data_str == '[DONE]':
-                                yield "data: " + json.dumps({"done": True}) + "\n\n"
+                                # Don't send done event yet - auto-rename check will handle it
                                 break
                             
                             try:
@@ -570,7 +585,22 @@ def chutes_stream_generator(generation_id):
                             except json.JSONDecodeError:
                                 pass
             
-            # Clean up
+            # Check for auto-rename BEFORE sending done event
+            generation_data = active_generations.get(generation_id)
+            if generation_data and generation_data.get('document_id'):
+                doc_id = generation_data['document_id']
+                document = load_document(doc_id)
+                if document and document.get('name') == 'Untitled' and document.get('content'):
+                    # Auto-rename if document is still named "Untitled" and has content
+                    try:
+                        new_name = generate_document_name(document['content'])
+                        if new_name and new_name != 'Untitled':
+                            success, updated_doc = update_document_metadata(doc_id, new_name)
+                            if success:
+                                yield "data: " + json.dumps({"auto_renamed": True, "new_name": new_name}) + "\n\n"
+                    except Exception as e:
+                        logger.error(f"Error during auto-rename: {e}")
+            
             if generation_id in active_generations:
                 del active_generations[generation_id]
             
@@ -624,10 +654,64 @@ def generate_text(prompt, model_params):
         logger.error(f"Error generating text: {e}")
         return None
 
+def generate_document_name(content):
+    """Generate a 2-4 word document name based on content using AI"""
+    # Truncate content to reasonable length for naming
+    max_chars = 2000  # Approximately 500-750 tokens
+    if len(content) > max_chars:
+        content = content[:max_chars]
+    
+    prompt = f"""Based on this text content, generate a short, descriptive document name that is 2-4 words long. The name should capture the main theme, setting, or key elements of the text.
+
+Text content:
+{content}
+
+Respond with ONLY the document name, nothing else. Example formats:
+- "Lighthouse Mystery"
+- "Ocean Storm Night" 
+- "Ancient Forest Discovery"
+- "Desert Caravan Journey"
+
+Document name:"""
+    
+    try:
+        headers = {
+            'Authorization': f"Bearer {config['token']}",
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            'model': 'moonshotai/kimi-k2:free',  # Use specified model for renaming
+            'prompt': prompt,
+            'temperature': 0.3,  # Lower temperature for more focused responses
+            'max_tokens': 10,    # Shorter to avoid long responses
+            'stream': False
+        }
+        
+        response = requests.post('https://openrouter.ai/api/v1/completions', headers=headers, json=payload, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            name = data.get("choices", [{}])[0].get("text", "").strip()
+            # Clean up response - remove quotes, extra whitespace, newlines
+            name = name.strip().strip('"').strip("'").strip()
+            # Take only the first line if there are multiple lines
+            name = name.split('\n')[0].strip()
+            # Ensure it's reasonable length (2-4 words, roughly 20-50 chars)
+            if len(name) > 50:
+                name = name[:50].rsplit(' ', 1)[0]  # Cut at word boundary
+            return name if name else "Untitled"
+        else:
+            logger.error(f"Error generating document name: {response.status_code}")
+            return "Untitled"
+    except Exception as e:
+        logger.error(f"Error generating document name: {e}")
+        return "Untitled"
+
 def stream_generator(generation_id):
     """Generator function for streaming API responses"""
     generation_data = active_generations[generation_id]
     prompt = generation_data['prompt']
+    
     
     headers = {
         'Authorization': f"Bearer {config['token']}",
@@ -719,7 +803,7 @@ def stream_generator(generation_id):
                         if line.startswith('data: '):
                             data_str = line[6:]
                             if data_str == '[DONE]':
-                                yield "data: " + json.dumps({"done": True}) + "\n\n"
+                                # Don't send done event yet - auto-rename check will handle it
                                 break
                             
                             try:
@@ -732,7 +816,23 @@ def stream_generator(generation_id):
                             except json.JSONDecodeError:
                                 pass
             
-            # Clean up
+            # Check for auto-rename BEFORE sending done event
+            generation_data = active_generations.get(generation_id)
+            if generation_data and generation_data.get('document_id'):
+                doc_id = generation_data['document_id']
+                document = load_document(doc_id)
+                if document and document.get('name') == 'Untitled' and document.get('content'):
+                    # Auto-rename if document is still named "Untitled" and has content
+                    try:
+                        new_name = generate_document_name(document['content'])
+                        if new_name and new_name != 'Untitled':
+                            success, updated_doc = update_document_metadata(doc_id, new_name)
+                            if success:
+                                yield "data: " + json.dumps({"auto_renamed": True, "new_name": new_name}) + "\n\n"
+                    except Exception as e:
+                        logger.error(f"Error during auto-rename: {e}")
+            
+            # Clean up and send done event
             if generation_id in active_generations:
                 del active_generations[generation_id]
             

@@ -10,6 +10,7 @@ let lastCheckpoint = null;  // Store the content checkpoint before generation
 let lastEditFromAPI = false;  // Track if the last edit was from API generation
 let errorToast = null;  // Store the toast instance
 let autosaveToast = null;  // Store the autosave toast instance
+let autorenameToast = null;  // Store the autorename toast instance
 
 // Cache DOM elements
 const domElements = {
@@ -38,6 +39,8 @@ const domElements = {
     closeSettingsBtn: document.getElementById('close-settings'),
     settingsFormInline: document.getElementById('settings-form-inline'),
     autosaveToast: document.getElementById('autosave-toast'),
+    autorenameToast: document.getElementById('autorename-toast'),
+    autorenameToastText: document.getElementById('autorename-toast-text'),
     sidebarBackdrop: document.getElementById('sidebar-backdrop')
 };
 
@@ -304,6 +307,7 @@ function renderDocumentList(documents, currentDocId) {
                 <div class="document-actions dropdown ms-2" data-id="${doc.id}" data-name="${doc.name}">
                     <i class="bi bi-three-dots" data-bs-toggle="dropdown"></i>
                     <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item download-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Download as .txt</a></li>
                         <li><a class="dropdown-item rename-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Rename</a></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item delete-doc text-danger" href="#" data-id="${doc.id}" data-name="${doc.name}">Delete</a></li>
@@ -330,6 +334,16 @@ function renderDocumentList(documents, currentDocId) {
     document.querySelectorAll('.document-actions').forEach(menu => {
         menu.addEventListener('click', function(e) {
             e.stopPropagation(); // Prevent the click from reaching the document item
+        });
+    });
+
+    document.querySelectorAll('.download-doc').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation(); // Prevent the click from reaching the document item
+            const docId = this.dataset.id;
+            const docName = this.dataset.name;
+            downloadDocument(docId, docName);
         });
     });
 
@@ -464,18 +478,64 @@ function renameDocument(docId, newName) {
 }
 
 /**
+ * Download a document as .txt file
+ * @param {String} docId - Document ID to download
+ * @param {String} docName - Document name for filename
+ */
+function downloadDocument(docId, docName) {
+    fetch(`/documents/${docId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const content = data.document.content || '';
+                const filename = `${docName}.txt`;
+                
+                // Create a blob with the content
+                const blob = new Blob([content], { type: 'text/plain' });
+                
+                // Create a temporary download link
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                
+                // Trigger the download
+                document.body.appendChild(a);
+                a.click();
+                
+                // Clean up
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            } else {
+                console.error('Error downloading document:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error downloading document:', error);
+        });
+}
+
+/**
  * Delete a document
  * @param {String} docId - Document ID to delete
  */
 function deleteDocument(docId) {
+    // Check if we're deleting the current document
+    const isDeletingCurrentDoc = currentDocument && currentDocument.id === docId;
+    
     fetch(`/documents/${docId}`, {
         method: 'DELETE'
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Reload documents list
-            loadDocuments();
+            // If we deleted the current document, create a new blank one
+            if (isDeletingCurrentDoc) {
+                createNewDocument('Untitled');
+            } else {
+                // Otherwise just reload the documents list
+                loadDocuments();
+            }
         } else {
             console.error('Error deleting document:', data.error);
         }
@@ -530,6 +590,53 @@ function startStreaming(generationId) {
             // Save immediately when new content is received
             lastContent = editor.value;
             saveCurrentDocument();
+        }
+        
+        // Handle auto-rename event
+        if (data.auto_renamed) {
+            // Show auto-rename toast notification
+            showAutoRenameToast(data.new_name);
+            
+            // Update the current document object
+            if (currentDocument) {
+                currentDocument.name = data.new_name;
+            }
+            
+            // 1. Update the main document name display in header
+            const headerNameElement = document.getElementById('current-document-name');
+            if (headerNameElement) {
+                headerNameElement.textContent = data.new_name;
+            }
+            
+            // 2. Update the sidebar document name
+            const sidebarNameElement = document.querySelector(`.document-item.active .document-name`);
+            if (sidebarNameElement) {
+                sidebarNameElement.textContent = data.new_name;
+            } else if (currentDocument) {
+                // Fallback: find by document ID
+                const sidebarByID = document.querySelector(`[data-id="${currentDocument.id}"] .document-name`);
+                if (sidebarByID) {
+                    sidebarByID.textContent = data.new_name;
+                }
+            }
+            
+            // 3. Update all data attributes in the sidebar for this document
+            const activeDocumentItem = document.querySelector(`.document-item.active`);
+            if (activeDocumentItem && currentDocument) {
+                // Update dropdown menu data attributes
+                const documentActions = activeDocumentItem.querySelector('.document-actions');
+                if (documentActions) {
+                    documentActions.setAttribute('data-name', data.new_name);
+                    
+                    // Update download, rename and delete links
+                    const downloadLink = documentActions.querySelector('.download-doc');
+                    const renameLink = documentActions.querySelector('.rename-doc');
+                    const deleteLink = documentActions.querySelector('.delete-doc');
+                    if (downloadLink) downloadLink.setAttribute('data-name', data.new_name);
+                    if (renameLink) renameLink.setAttribute('data-name', data.new_name);
+                    if (deleteLink) deleteLink.setAttribute('data-name', data.new_name);
+                }
+            }
         }
         
         // Handle completion of generation
@@ -1084,15 +1191,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // New document button handlers
+    // New document button handlers - create documents directly as "Untitled"
     domElements.newDocumentBtn.addEventListener('click', function() {
-        const modal = new bootstrap.Modal(document.getElementById('documentNameModal'));
-        modal.show();
+        createNewDocument('Untitled');
     });
     
     domElements.emptyNewDocBtn.addEventListener('click', function() {
-        const modal = new bootstrap.Modal(document.getElementById('documentNameModal'));
-        modal.show();
+        createNewDocument('Untitled');
     });
 
     // Add cancel button handler
@@ -1413,4 +1518,17 @@ function showError(message) {
     
     domElements.errorToastBody.textContent = displayMessage;
     errorToast.show();
+}
+
+function showAutoRenameToast(newName) {
+    if (!autorenameToast) {
+        autorenameToast = new bootstrap.Toast(domElements.autorenameToast, {
+            animation: true,
+            autohide: true,
+            delay: 3000
+        });
+    }
+    
+    domElements.autorenameToastText.textContent = `Renamed to "${newName}"`;
+    autorenameToast.show();
 }

@@ -1134,7 +1134,7 @@
                                             <label for="model" class="form-label">Model</label>
                                             <input type="text" class="form-control form-control-sm" id="model" name="model" value="{{ config.model }}" required>
                                             <div class="form-text" id="model-help-text">
-                                                deepseek/deepseek-r1-0528:free<br>deepseek/deepseek-v3-base<br>thudm/glm-4-32b:free<br>moonshotai/kimi-k2:free<br>meta-llama/llama-3.1-405b
+                                                deepseek/deepseek-r1-0528<br>deepseek/deepseek-v3-base<br>deepseek/deepseek-v3.1-base<br>thudm/glm-4-32b<br>moonshotai/kimi-k2<br>meta-llama/llama-3.1-405b
                                             </div>
                                         </div>
                                         
@@ -1333,6 +1333,16 @@
             <div class="toast-body bg-success text-white d-flex align-items-center">
                 <i class="bi bi-check-circle-fill me-2"></i>
                 <span>Auto-saved!</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Auto-rename Toast Container (Bottom) -->
+    <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3" style="z-index: 1070; margin-bottom: 60px;">
+        <div id="autorename-toast" class="toast" role="alert" aria-live="polite" aria-atomic="true">
+            <div class="toast-body bg-success text-white d-flex align-items-center">
+                <i class="bi bi-pencil-fill me-2"></i>
+                <span id="autorename-toast-text">Document auto-renamed!</span>
             </div>
         </div>
     </div>
