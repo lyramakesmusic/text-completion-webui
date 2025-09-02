@@ -201,6 +201,10 @@
             border-color: rgb(220, 53, 69);
             color: white;
         }
+
+        #document-search {
+            padding: 8px;
+        }
         
         /* Base styling - now applies to default dark mode */
         .form-control {
@@ -439,6 +443,18 @@
         
         .sidebar.collapsed .sidebar-header,
         .sidebar-right.collapsed .sidebar-header {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .sidebar-search {
+            padding: 10px 10px 10px 10px;
+            border-bottom: 1px solid var(--border-color);
+            opacity: 1;
+            transition: opacity 0.1s ease;
+        }
+        
+        .sidebar.collapsed .sidebar-search {
             opacity: 0;
             pointer-events: none;
         }
@@ -1039,6 +1055,9 @@
                     <i class="bi bi-plus"></i> New
                 </button>
             </div>
+            <div class="sidebar-search">
+                <input type="text" class="form-control form-control-sm" id="document-search" placeholder="Search documents..." autocomplete="off">
+            </div>
             <div class="sidebar-content">
                 <ul class="document-list" id="document-list">
                     <!-- Documents will be loaded here -->
@@ -1208,6 +1227,14 @@
                             <input class="form-check-input" type="checkbox" id="dark_mode" name="dark_mode" {% if config.dark_mode %}checked{% endif %}>
                             <label class="form-check-label" for="dark_mode">Dark Mode</label>
                         </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="embeddings_search" name="embeddings_search" {% if config.get('embeddings_search', True) %}checked{% endif %}>
+                            <label class="form-check-label" for="embeddings_search">Embeddings Search</label>
+                        </div>
+                        <div class="form-text">Use semantic similarity search instead of keyword search</div>
                     </div>
 
                 </form>

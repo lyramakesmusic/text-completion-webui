@@ -7,6 +7,13 @@ import datetime
 import logging
 from threading import Timer
 from threading import Lock
+import numpy as np
+from model2vec import StaticModel
+
+# ============================
+# Embeddings Configuration
+# ============================
+EMBEDDINGS_SIMILARITY_THRESHOLD = 0.1  # Cosine similarity threshold for search results
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, 
@@ -61,7 +68,8 @@ DEFAULT_CONFIG = {
     'dark_mode': True,  # Default to dark mode
     'provider': 'openrouter',  # 'openrouter', 'openai', 'chutes'
     'custom_api_key': '',  # Optional custom API key for specific providers
-    'openai_endpoint': 'http://localhost:8080/v1'  # Only for OpenAI-compatible provider
+    'openai_endpoint': 'http://localhost:8080/v1',  # Only for OpenAI-compatible provider
+    'embeddings_search': True  # Use embeddings search by default
 }
 
 # Active generation requests
@@ -72,6 +80,71 @@ documents_cache = {}
 write_timer = None
 write_lock = Lock()
 WRITE_DELAY = 1.0  # seconds
+
+# Embeddings model - initialize lazily
+embeddings_model = None
+
+def get_embeddings_model():
+    """Get or initialize the embeddings model"""
+    global embeddings_model
+    if embeddings_model is None:
+        try:
+            logger.info("Loading embeddings model...")
+            embeddings_model = StaticModel.from_pretrained("minishlab/potion-base-8M")
+            logger.info("Embeddings model loaded successfully")
+        except Exception as e:
+            logger.error(f"Error loading embeddings model: {e}")
+            embeddings_model = None
+    return embeddings_model
+
+def calculate_text_embedding(text):
+    """Calculate embedding for a text string"""
+    if not text or not text.strip():
+        logger.debug("Empty text provided for embedding")
+        return None
+        
+    model = get_embeddings_model()
+    if model is None:
+        logger.error("Embeddings model is None")
+        return None
+        
+    try:
+        # Clean the text - remove extra whitespace and limit length
+        clean_text = ' '.join(text.strip().split())
+        if len(clean_text) > 5000:  # Limit text length for embeddings
+            clean_text = clean_text[:5000]
+            
+        logger.debug(f"Calculating embedding for text: {clean_text[:50]}...")
+        embeddings = model.encode([clean_text])
+        result = embeddings[0].tolist()  # Convert numpy array to list for JSON storage
+        logger.debug(f"Embedding calculated successfully, length: {len(result)}")
+        return result
+    except Exception as e:
+        logger.error(f"Error calculating embedding: {e}")
+        return None
+
+def cosine_similarity(vec1, vec2):
+    """Calculate cosine similarity between two vectors"""
+    if not vec1 or not vec2:
+        return 0.0
+        
+    try:
+        # Convert to numpy arrays
+        a = np.array(vec1)
+        b = np.array(vec2)
+        
+        # Calculate cosine similarity
+        dot_product = np.dot(a, b)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+            
+        return dot_product / (norm_a * norm_b)
+    except Exception as e:
+        logger.error(f"Error calculating cosine similarity: {e}")
+        return 0.0
 
 # Ensure directories exist
 try:
@@ -245,12 +318,17 @@ def create_new_document(name="Untitled"):
     doc_id = str(uuid.uuid4())
     now = datetime.datetime.now().isoformat()
     
+    # Calculate embeddings for the document name
+    name_embedding = calculate_text_embedding(name)
+    
     document = {
         'id': doc_id,
         'name': name,
         'created_at': now,
         'updated_at': now,
-        'content': ''
+        'content': '',
+        'content_embedding': None,  # No content yet
+        'name_embedding': name_embedding
     }
     
     if save_document(doc_id, document):
@@ -270,6 +348,8 @@ def update_document_metadata(doc_id, name=None):
     
     if name:
         document['name'] = name
+        # Recalculate name embedding
+        document['name_embedding'] = calculate_text_embedding(name)
     document['updated_at'] = datetime.datetime.now().isoformat()
     
     if save_document(doc_id, document):
@@ -285,21 +365,62 @@ def update_document_content(doc_id, content):
     document['content'] = content
     document['updated_at'] = datetime.datetime.now().isoformat()
     
+    # Recalculate content embedding
+    document['content_embedding'] = calculate_text_embedding(content)
+    
     if save_document(doc_id, document):
         return True, document
     return False, None
+
+def get_document_metadata(doc_id):
+    """Get document metadata without loading full content"""
+    # Check cache first
+    if doc_id in documents_cache:
+        doc = documents_cache[doc_id]
+        return {
+            'id': doc_id,
+            'name': doc.get('name', 'Untitled'),
+            'updated_at': doc.get('updated_at'),
+            'created_at': doc.get('created_at'),
+            'content_embedding': doc.get('content_embedding'),
+            'name_embedding': doc.get('name_embedding'),
+            'content': doc.get('content', '')  # Include for keyword search
+        }
+    
+    # Load from disk if not in cache
+    doc_path = get_document_path(doc_id)
+    if not os.path.exists(doc_path):
+        return None
+    
+    try:
+        with open(doc_path, 'r') as f:
+            document = json.load(f)
+            # Add to cache
+            documents_cache[doc_id] = document
+            return {
+                'id': doc_id,
+                'name': document.get('name', 'Untitled'),
+                'updated_at': document.get('updated_at'),
+                'created_at': document.get('created_at'),
+                'content_embedding': document.get('content_embedding'),
+                'name_embedding': document.get('name_embedding'),
+                'content': document.get('content', '')
+            }
+    except Exception as e:
+        logger.error(f"Error loading document metadata {doc_id}: {e}")
+        return None
 
 def get_all_documents():
     """Get list of all documents with metadata"""
     documents = []
     for doc_id in config['documents']:
-        doc = load_document(doc_id)
-        if doc:
+        doc_meta = get_document_metadata(doc_id)
+        if doc_meta:
             documents.append({
                 'id': doc_id,
-                'name': doc.get('name', 'Untitled'),
-                'updated_at': doc.get('updated_at'),
-                'created_at': doc.get('created_at')
+                'name': doc_meta['name'],
+                'updated_at': doc_meta['updated_at'],
+                'created_at': doc_meta['created_at']
             })
     return sorted(documents, key=lambda x: x['updated_at'], reverse=True)
 
@@ -886,6 +1007,7 @@ def settings():
         config['provider'] = request.form.get('provider', config.get('provider', 'openrouter'))
         config['custom_api_key'] = request.form.get('custom_api_key', config.get('custom_api_key', ''))
         config['openai_endpoint'] = request.form.get('openai_endpoint', config.get('openai_endpoint', 'http://localhost:8080/v1'))
+        config['embeddings_search'] = request.form.get('embeddings_search') == 'on'
         save_config(config)
         return jsonify({'success': True})
     
@@ -900,6 +1022,101 @@ def get_documents():
         'documents': documents,
         'current_document': config['current_document']
     })
+
+@app.route('/documents/search', methods=['GET'])
+def search_documents():
+    """Search documents by keyword or embeddings similarity"""
+    query = request.args.get('q', '').strip()
+    use_embeddings = config.get('embeddings_search', True)
+    
+    if not query:
+        # Return all documents if no query
+        documents = get_all_documents()
+        return jsonify({
+            'success': True,
+            'documents': documents,
+            'query': query,
+            'search_type': 'none'
+        })
+    
+    matching_documents = []
+    
+    if use_embeddings:
+        # Embeddings search only
+        query_embedding = calculate_text_embedding(query)
+        logger.info(f"Query embedding calculated: {query_embedding is not None}")
+        
+        for doc_id in config['documents']:
+            doc_meta = get_document_metadata(doc_id)
+            if doc_meta:
+                similarity_score = 0.0
+                if query_embedding:
+                    content_embedding = doc_meta.get('content_embedding')
+                    name_embedding = doc_meta.get('name_embedding')
+                    
+                    # Check similarity with content
+                    content_similarity = 0.0
+                    if content_embedding:
+                        content_similarity = cosine_similarity(query_embedding, content_embedding)
+                    
+                    # Check similarity with name
+                    name_similarity = 0.0
+                    if name_embedding:
+                        name_similarity = cosine_similarity(query_embedding, name_embedding)
+                    
+                    # Use the higher of the two similarities
+                    similarity_score = max(content_similarity, name_similarity)
+                    
+                    logger.info(f"Doc {doc_meta.get('name', 'Untitled')[:20]}: content_sim={content_similarity:.3f}, name_sim={name_similarity:.3f}, max={similarity_score:.3f}")
+                
+                # Include all documents with their similarity scores
+                matching_documents.append({
+                    'id': doc_id,
+                    'name': doc_meta.get('name', 'Untitled'),
+                    'updated_at': doc_meta.get('updated_at'),
+                    'created_at': doc_meta.get('created_at'),
+                    'similarity_score': similarity_score
+                })
+        
+        # Sort by similarity score (highest first)
+        matching_documents.sort(key=lambda x: x['similarity_score'], reverse=True)
+        search_type = 'embeddings'
+        
+    else:
+        # Keyword search only
+        query_lower = query.lower()
+        for doc_id in config['documents']:
+            doc_meta = get_document_metadata(doc_id)
+            if doc_meta:
+                # Count occurrences in content and name (case-insensitive)
+                content = doc_meta.get('content', '').lower()
+                name = doc_meta.get('name', '').lower()
+                
+                content_count = content.count(query_lower)
+                name_count = name.count(query_lower)
+                total_occurrences = content_count + name_count
+                
+                # Include all documents with their occurrence counts
+                matching_documents.append({
+                    'id': doc_id,
+                    'name': doc_meta.get('name', 'Untitled'),
+                    'updated_at': doc_meta.get('updated_at'),
+                    'created_at': doc_meta.get('created_at'),
+                    'occurrence_count': total_occurrences
+                })
+        
+        # Sort by occurrence count (highest first), then by updated_at
+        matching_documents.sort(key=lambda x: (x['occurrence_count'], x['updated_at']), reverse=True)
+        search_type = 'keyword'
+    
+    return jsonify({
+        'success': True,
+        'documents': matching_documents,
+        'query': query,
+        'search_type': search_type,
+        'total_matches': len(matching_documents)
+    })
+
 
 @app.route('/documents/new', methods=['POST'])
 def new_document():
@@ -1076,8 +1293,9 @@ def init_documents_cache():
         if os.path.exists(doc_path):
             try:
                 with open(doc_path, 'r') as f:
-                    documents_cache[doc_id] = json.load(f)
-                logger.info(f"Document {doc_id} loaded into cache")
+                    document = json.load(f)
+                    documents_cache[doc_id] = document
+                    logger.info(f"Document {doc_id} loaded into cache")
             except Exception as e:
                 logger.error(f"Error loading document {doc_id} into cache: {e}")
 

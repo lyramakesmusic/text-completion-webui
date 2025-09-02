@@ -18,6 +18,7 @@ const domElements = {
     toggleSidebarBtn: document.getElementById('toggle-sidebar'),
     sidebarHandle: document.getElementById('sidebar-handle'),
     documentList: document.getElementById('document-list'),
+    documentSearch: document.getElementById('document-search'),
     editorContainer: document.getElementById('editor-container'),
     emptyState: document.getElementById('empty-state'),
     currentDocumentName: document.getElementById('current-document-name'),
@@ -273,63 +274,211 @@ function loadDocuments() {
         });
 }
 
+// Cache for search results to avoid redundant API calls
+let searchCache = new Map();
+let lastSearchRequest = null;
+
+/**
+ * Search documents by keyword
+ * @param {String} query - Search query
+ */
+function searchDocuments(query) {
+    // Debounce: cancel previous request if still pending
+    if (lastSearchRequest) {
+        lastSearchRequest.abort();
+    }
+    
+    const cacheKey = query || 'all';
+    
+    // Check cache first for non-empty queries
+    if (query && searchCache.has(cacheKey)) {
+        const cachedData = searchCache.get(cacheKey);
+        renderDocumentList(cachedData.documents, currentDocument ? currentDocument.id : null, {
+            query: cachedData.query,
+            search_type: cachedData.search_type
+        });
+        return;
+    }
+    
+    const url = query ? `/documents/search?q=${encodeURIComponent(query)}` : '/documents';
+    const controller = new AbortController();
+    lastSearchRequest = controller;
+    
+    fetch(url, { signal: controller.signal })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            lastSearchRequest = null;
+            
+            if (!data.success) {
+                console.error('Error searching documents:', data.error);
+                return;
+            }
+
+            // Cache the results for future use (limit cache size)
+            if (query) {
+                if (searchCache.size >= 10) {
+                    // Remove oldest entry
+                    const firstKey = searchCache.keys().next().value;
+                    searchCache.delete(firstKey);
+                }
+                searchCache.set(cacheKey, data);
+            }
+
+            // Render the filtered document list with search information
+            renderDocumentList(data.documents, currentDocument ? currentDocument.id : null, {
+                query: data.query,
+                search_type: data.search_type
+            });
+            
+            // Show "no results" message if search returned empty
+            if (query && data.documents.length === 0) {
+                domElements.documentList.innerHTML = '<li class="p-3 text-center" style="color: var(--text-secondary); opacity: 0.7;">No documents match search query</li>';
+            }
+        })
+        .catch(error => {
+            if (error.name !== 'AbortError') {
+                console.error('Error searching documents:', error);
+            }
+            lastSearchRequest = null;
+        });
+}
+
+// Cache for document elements to avoid full rebuilds
+let documentElementsCache = new Map();
+let lastSearchQuery = '';
+
 /**
  * Render the document list in the sidebar
  * @param {Array} documents - List of document objects
  * @param {String} currentDocId - ID of the current document
+ * @param {Object} searchInfo - Information about the search (query, search_type)
  */
-function renderDocumentList(documents, currentDocId) {
-    domElements.documentList.innerHTML = '';
-    
+function renderDocumentList(documents, currentDocId, searchInfo = null) {
     if (!documents || documents.length === 0) {
         domElements.documentList.innerHTML = '<li class="p-3 text-center text-muted">No documents yet</li>';
+        documentElementsCache.clear();
         return;
     }
     
-    // Sort documents by updated_at (most recent first)
-    documents.sort((a, b) => {
-        return new Date(b.updated_at) - new Date(a.updated_at);
-    });
+    // Only sort by updated_at if not searching
+    if (!searchInfo || !searchInfo.query) {
+        documents.sort((a, b) => {
+            return new Date(b.updated_at) - new Date(a.updated_at);
+        });
+    }
     
-    documents.forEach(doc => {
-        const li = document.createElement('li');
-        li.className = `document-item ${doc.id === currentDocId ? 'active' : ''}`;
-        li.dataset.id = doc.id;
-        
-        // Format the date
-        const updated = new Date(doc.updated_at);
-        const formattedDate = formatRelativeTime(updated);
-        
-        li.innerHTML = `
-            <div class="document-name">${doc.name}</div>
-            <div class="d-flex align-items-center">
-                <span class="document-time">${formattedDate}</span>
-                <div class="document-actions dropdown ms-2" data-id="${doc.id}" data-name="${doc.name}">
-                    <i class="bi bi-three-dots" data-bs-toggle="dropdown"></i>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item download-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Download as .txt</a></li>
-                        <li><a class="dropdown-item rename-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Rename</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item delete-doc text-danger" href="#" data-id="${doc.id}" data-name="${doc.name}">Delete</a></li>
-                    </ul>
-                </div>
-            </div>
-        `;
-        
-        // Add click handler
-        li.addEventListener('click', function(e) {
-            // Don't handle the click if it was on or inside the actions menu
-            if (e.target.closest('.document-actions') || e.target.closest('.dropdown-menu')) {
-                e.stopPropagation();
-                return;
+    // Check if we can do a fast update (same documents, just different order or metrics)
+    const currentQuery = searchInfo?.query || '';
+    const existingElements = Array.from(domElements.documentList.children);
+    const canFastUpdate = existingElements.length === documents.length && 
+                         existingElements.every(el => documents.some(doc => doc.id === el.dataset.id));
+    
+    if (canFastUpdate && lastSearchQuery !== '' && currentQuery !== '') {
+        // Fast update: just reorder existing elements and update metrics
+        const fragment = document.createDocumentFragment();
+        documents.forEach(doc => {
+            const existingElement = Array.from(existingElements).find(el => el.dataset.id === doc.id);
+            if (existingElement) {
+                // Update the time/metric display
+                const timeSpan = existingElement.querySelector('.document-time');
+                if (timeSpan) {
+                    let timeOrMetric = getTimeOrMetric(doc, searchInfo);
+                    timeSpan.textContent = timeOrMetric;
+                }
+                
+                // Update active state
+                existingElement.className = `document-item ${doc.id === currentDocId ? 'active' : ''}`;
+                
+                fragment.appendChild(existingElement);
             }
-            
-            loadDocument(doc.id);
+        });
+        domElements.documentList.appendChild(fragment);
+    } else {
+        // Full rebuild needed
+        domElements.documentList.innerHTML = '';
+        documentElementsCache.clear();
+        
+        documents.forEach(doc => {
+            const li = createDocumentElement(doc, currentDocId, searchInfo);
+            domElements.documentList.appendChild(li);
+            documentElementsCache.set(doc.id, li);
         });
         
-        domElements.documentList.appendChild(li);
+        // Re-attach event listeners
+        attachDocumentEventListeners();
+    }
+    
+    lastSearchQuery = currentQuery;
+}
+
+/**
+ * Get the appropriate time or metric string for a document
+ */
+function getTimeOrMetric(doc, searchInfo) {
+    if (searchInfo && searchInfo.query) {
+        // Show search metric based on search type
+        if (searchInfo.search_type === 'embeddings' && doc.similarity_score !== undefined) {
+            // Round cosine similarity to 2 decimal places
+            return (doc.similarity_score).toFixed(2);
+        } else if (searchInfo.search_type === 'keyword' && doc.occurrence_count !== undefined) {
+            // Show integer number of keyword appearances
+            return doc.occurrence_count.toString();
+        }
+    }
+    // Show regular timestamp
+    const updated = new Date(doc.updated_at);
+    return formatRelativeTime(updated);
+}
+
+/**
+ * Create a document element
+ */
+function createDocumentElement(doc, currentDocId, searchInfo) {
+    const li = document.createElement('li');
+    li.className = `document-item ${doc.id === currentDocId ? 'active' : ''}`;
+    li.dataset.id = doc.id;
+    
+    const timeOrMetric = getTimeOrMetric(doc, searchInfo);
+    
+    li.innerHTML = `
+        <div class="document-name">${doc.name}</div>
+        <div class="d-flex align-items-center">
+            <span class="document-time">${timeOrMetric}</span>
+            <div class="document-actions dropdown ms-2" data-id="${doc.id}" data-name="${doc.name}">
+                <i class="bi bi-three-dots" data-bs-toggle="dropdown"></i>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item download-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Download as .txt</a></li>
+                    <li><a class="dropdown-item rename-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Rename</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item delete-doc text-danger" href="#" data-id="${doc.id}" data-name="${doc.name}">Delete</a></li>
+                </ul>
+            </div>
+        </div>
+    `;
+    
+    // Add click handler
+    li.addEventListener('click', function(e) {
+        // Don't handle the click if it was on or inside the actions menu
+        if (e.target.closest('.document-actions') || e.target.closest('.dropdown-menu')) {
+            e.stopPropagation();
+            return;
+        }
+        
+        loadDocument(doc.id);
     });
     
+    return li;
+}
+
+/**
+ * Attach event listeners to document action buttons
+ */
+function attachDocumentEventListeners() {
     // Add event listeners for document actions
     document.querySelectorAll('.document-actions').forEach(menu => {
         menu.addEventListener('click', function(e) {
@@ -739,6 +888,26 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load initial documents
     loadDocuments();
     
+    // Set up search functionality - reduced debounce for faster response
+    const debouncedSearch = debounce(function(query) {
+        searchDocuments(query);
+    }, 150);
+    
+    if (domElements.documentSearch) {
+        domElements.documentSearch.addEventListener('input', function() {
+            const query = this.value.trim();
+            debouncedSearch(query);
+        });
+        
+        // Clear search on Escape key
+        domElements.documentSearch.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                this.value = '';
+                searchDocuments('');
+            }
+        });
+    }
+    
     // Set up event listeners
     domElements.toggleSidebarBtn.addEventListener('click', function() {
         if (isMobile) {
@@ -825,7 +994,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (provider === 'openrouter') {
             // No model field shown for OpenRouter, so no need to update help text
         } else if (provider === 'openai') {
-            modelHelpText.innerHTML = 'gpt-4<br>gpt-3.5-turbo<br>llama-2-70b-chat<br>(depends on your local server)';
+            modelHelpText.innerHTML = '';
         } else if (provider === 'chutes') {
             modelHelpText.innerHTML = 'deepseek/deepseek-r1-0528:free<br>deepseek/deepseek-v3-base<br>thudm/glm-4-32b:free<br>moonshotai/kimi-k2:free<br>meta-llama/llama-3.1-405b';
         }
@@ -944,7 +1113,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     dark_mode: formData.get('dark_mode') === 'on',
                     provider: formData.get('provider'),
                     custom_api_key: formData.get('custom_api_key'),
-                    openai_endpoint: formData.get('openai_endpoint')
+                    openai_endpoint: formData.get('openai_endpoint'),
+                    embeddings_search: formData.get('embeddings_search') === 'on'
                 });
                 
                 // Editor colors now handled by CSS variables automatically
@@ -975,6 +1145,21 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Auto-save immediately for dark mode toggle
             autoSaveSettings();
+        });
+    }
+    
+    // Embeddings search toggle - trigger re-search if search is active
+    const embeddingsSearchToggle = document.getElementById('embeddings_search');
+    if (embeddingsSearchToggle) {
+        embeddingsSearchToggle.addEventListener('change', function() {
+            // Auto-save immediately
+            autoSaveSettings();
+            
+            // Re-search if there's an active search query
+            if (domElements.documentSearch && domElements.documentSearch.value.trim()) {
+                const query = domElements.documentSearch.value.trim();
+                searchDocuments(query);
+            }
         });
     }
     
