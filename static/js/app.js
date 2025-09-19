@@ -74,7 +74,7 @@ function initEditor() {
     editorWrapper.appendChild(textarea);
     editor = textarea;
     
-    // Track content changes and auto-save
+    // Track content changes and auto-save with performance optimization for large documents
     editor.addEventListener('input', function() {
         if (!currentDocument) return;
         
@@ -85,9 +85,21 @@ function initEditor() {
         lastEditFromAPI = false;
         lastCheckpoint = null;  // Clear the checkpoint when user makes changes
         
-        // Save immediately
+        // Update lastContent immediately to prevent duplicate saves
         lastContent = currentContent;
-        saveCurrentDocument();
+        
+        // Use longer debounce for large documents to improve performance
+        const contentLength = currentContent.length;
+        const debounceTime = contentLength > 50000 ? 1500 : contentLength > 20000 ? 1000 : 500;
+        
+        // Cancel previous save timer and schedule new one
+        if (window.saveTimer) {
+            clearTimeout(window.saveTimer);
+        }
+        window.saveTimer = setTimeout(() => {
+            saveCurrentDocument();
+            window.saveTimer = null;
+        }, debounceTime);
     });
     
     // Add keyboard shortcuts
@@ -130,8 +142,9 @@ function debounce(func, wait) {
 
 /**
  * Save the current document content to the server
+ * Now called directly without debounce since debouncing is handled at the input level
  */
-const saveCurrentDocument = debounce(function() {
+function saveCurrentDocument() {
     if (!currentDocument || !editor) return;
     
     const content = editor.value;
@@ -153,7 +166,7 @@ const saveCurrentDocument = debounce(function() {
     .catch(error => {
         console.error('Error saving document:', error);
     });
-}, 500); // Debounce for 500ms
+}
 
 // ============================
 // Token Management
@@ -716,29 +729,62 @@ function startStreaming(generationId) {
         const data = JSON.parse(event.data);
         
         if (data.text) {
-            // Store current cursor and scroll positions
+            // Performance optimization: use insertAdjacentText for incremental updates
+            const wasAtEnd = editor.selectionStart === editor.value.length;
             const currentScroll = editor.scrollTop;
-            const currentSelection = {
-                start: editor.selectionStart,
-                end: editor.selectionEnd
-            };
+            const scrollAtBottom = editor.scrollTop >= (editor.scrollHeight - editor.clientHeight - 10);
             
             generatedText += data.text;
             
-            // Update editor with generated text
-            editor.value = originalText + generatedText;
+            // For large documents, minimize DOM manipulation
+            if (editor.value.length > 50000) {
+                // Batch updates: only update every 10 chunks or when done
+                if (!window.streamUpdateBatch) {
+                    window.streamUpdateBatch = { count: 0, pendingText: '' };
+                }
+                window.streamUpdateBatch.pendingText += data.text;
+                window.streamUpdateBatch.count++;
+                
+                // Update every 10 chunks for large documents
+                if (window.streamUpdateBatch.count >= 10) {
+                    editor.value = originalText + generatedText;
+                    window.streamUpdateBatch = { count: 0, pendingText: '' };
+                    
+                    // Restore position only if user was at end
+                    if (wasAtEnd) {
+                        editor.selectionStart = editor.selectionEnd = editor.value.length;
+                    }
+                    if (scrollAtBottom) {
+                        editor.scrollTop = editor.scrollHeight;
+                    }
+                }
+            } else {
+                // Normal update for smaller documents
+                editor.value = originalText + generatedText;
+                
+                // Restore cursor and scroll positions
+                if (wasAtEnd) {
+                    editor.selectionStart = editor.selectionEnd = editor.value.length;
+                }
+                if (scrollAtBottom) {
+                    editor.scrollTop = editor.scrollHeight;
+                } else {
+                    editor.scrollTop = currentScroll;
+                }
+            }
             
             // Mark that this edit was from API
             lastEditFromAPI = true;
             
-            // Restore cursor and scroll positions
-            editor.scrollTop = currentScroll;
-            editor.selectionStart = currentSelection.start;
-            editor.selectionEnd = currentSelection.end;
-            
-            // Save immediately when new content is received
-            lastContent = editor.value;
-            saveCurrentDocument();
+            // Update lastContent and save (debounced for large docs)
+            lastContent = originalText + generatedText;
+            if (window.saveTimer) {
+                clearTimeout(window.saveTimer);
+            }
+            window.saveTimer = setTimeout(() => {
+                saveCurrentDocument();
+                window.saveTimer = null;
+            }, editor.value.length > 50000 ? 1000 : 200);
         }
         
         // Handle auto-rename event
@@ -790,6 +836,17 @@ function startStreaming(generationId) {
         
         // Handle completion of generation
         if (data.done) {
+            // Flush any pending batched updates for large documents
+            if (window.streamUpdateBatch && window.streamUpdateBatch.count > 0) {
+                editor.value = originalText + generatedText;
+                const wasAtEnd = editor.selectionStart === editor.value.length;
+                if (wasAtEnd) {
+                    editor.selectionStart = editor.selectionEnd = editor.value.length;
+                    editor.scrollTop = editor.scrollHeight;
+                }
+                window.streamUpdateBatch = null;
+            }
+            
             eventSource.close();
             currentGenerationId = null;
             

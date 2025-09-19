@@ -98,7 +98,7 @@ def get_embeddings_model():
     return embeddings_model
 
 def calculate_text_embedding(text):
-    """Calculate embedding for a text string"""
+    """Calculate embedding for a text string with performance optimizations"""
     if not text or not text.strip():
         logger.debug("Empty text provided for embedding")
         return None
@@ -109,9 +109,22 @@ def calculate_text_embedding(text):
         return None
         
     try:
-        # Clean the text - remove extra whitespace and limit length
+        # Clean the text - remove extra whitespace
         clean_text = ' '.join(text.strip().split())
-        if len(clean_text) > 5000:  # Limit text length for embeddings
+        
+        # Performance optimization: use different strategies based on text length
+        if len(clean_text) > 50000:
+            # For very large documents, use a sample from beginning and end
+            beginning = clean_text[:2000]
+            end = clean_text[-2000:]
+            clean_text = beginning + " ... " + end
+            logger.debug(f"Large document detected ({len(text)} chars), using sample for embedding")
+        elif len(clean_text) > 8000:
+            # For medium documents, truncate more aggressively
+            clean_text = clean_text[:8000]
+            logger.debug(f"Medium document detected, truncating to 8000 chars for embedding")
+        elif len(clean_text) > 5000:
+            # For smaller large documents, use original limit
             clean_text = clean_text[:5000]
             
         logger.debug(f"Calculating embedding for text: {clean_text[:50]}...")
@@ -357,35 +370,58 @@ def update_document_metadata(doc_id, name=None):
     return False, None
 
 def update_document_content(doc_id, content):
-    """Update a document's content"""
+    """Update a document's content with embedding caching"""
     document = load_document(doc_id)
     if not document:
         return False, None
     
+    # Check if content actually changed to avoid unnecessary embedding calculation
+    old_content = document.get('content', '')
+    if old_content == content:
+        logger.debug(f"Content unchanged for document {doc_id}, skipping embedding recalculation")
+        return True, document
+    
     document['content'] = content
     document['updated_at'] = datetime.datetime.now().isoformat()
     
-    # Recalculate content embedding
-    document['content_embedding'] = calculate_text_embedding(content)
+    # Only recalculate embedding if content changed significantly
+    # For performance on large docs, skip embedding if only minor changes
+    content_diff = abs(len(content) - len(old_content))
+    if content_diff > 100 or not document.get('content_embedding'):
+        # Recalculate content embedding only if significant change or no existing embedding
+        document['content_embedding'] = calculate_text_embedding(content)
+        logger.debug(f"Recalculated embedding for document {doc_id} (diff: {content_diff} chars)")
+    else:
+        logger.debug(f"Skipped embedding recalculation for document {doc_id} (minor change: {content_diff} chars)")
     
     if save_document(doc_id, document):
         return True, document
     return False, None
 
-def get_document_metadata(doc_id):
-    """Get document metadata without loading full content"""
+def get_document_metadata(doc_id, include_content=True):
+    """Get document metadata with optional content inclusion for performance"""
     # Check cache first
     if doc_id in documents_cache:
         doc = documents_cache[doc_id]
-        return {
+        metadata = {
             'id': doc_id,
             'name': doc.get('name', 'Untitled'),
             'updated_at': doc.get('updated_at'),
             'created_at': doc.get('created_at'),
             'content_embedding': doc.get('content_embedding'),
-            'name_embedding': doc.get('name_embedding'),
-            'content': doc.get('content', '')  # Include for keyword search
+            'name_embedding': doc.get('name_embedding')
         }
+        # Only include content if requested and needed
+        if include_content:
+            content = doc.get('content', '')
+            # For search performance, truncate very large content for keyword search
+            if len(content) > 100000:  # 100KB limit for search
+                metadata['content'] = content[:100000] + "..."
+                metadata['content_truncated'] = True
+            else:
+                metadata['content'] = content
+                metadata['content_truncated'] = False
+        return metadata
     
     # Load from disk if not in cache
     doc_path = get_document_path(doc_id)
@@ -397,15 +433,23 @@ def get_document_metadata(doc_id):
             document = json.load(f)
             # Add to cache
             documents_cache[doc_id] = document
-            return {
+            metadata = {
                 'id': doc_id,
                 'name': document.get('name', 'Untitled'),
                 'updated_at': document.get('updated_at'),
                 'created_at': document.get('created_at'),
                 'content_embedding': document.get('content_embedding'),
-                'name_embedding': document.get('name_embedding'),
-                'content': document.get('content', '')
+                'name_embedding': document.get('name_embedding')
             }
+            if include_content:
+                content = document.get('content', '')
+                if len(content) > 100000:
+                    metadata['content'] = content[:100000] + "..."
+                    metadata['content_truncated'] = True
+                else:
+                    metadata['content'] = content
+                    metadata['content_truncated'] = False
+            return metadata
     except Exception as e:
         logger.error(f"Error loading document metadata {doc_id}: {e}")
         return None
@@ -414,7 +458,7 @@ def get_all_documents():
     """Get list of all documents with metadata"""
     documents = []
     for doc_id in config['documents']:
-        doc_meta = get_document_metadata(doc_id)
+        doc_meta = get_document_metadata(doc_id, include_content=False)  # Don't load content for list view
         if doc_meta:
             documents.append({
                 'id': doc_id,
