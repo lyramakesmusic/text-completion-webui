@@ -1015,123 +1015,154 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // Update provider-specific settings visibility and ensure values are synchronized
-    function updateModelExamples() {
-        const providerField = document.getElementById('provider');
-        if (!providerField) return;
-        
-        const provider = providerField.value;
-        const openrouterSettings = document.getElementById('openrouter-settings');
-        const openaiSettings = document.getElementById('openai-settings');
-        const chutesSettings = document.getElementById('chutes-settings');
-        
-        // Hide all provider sections first
-        if (openrouterSettings) openrouterSettings.style.display = 'none';
-        if (openaiSettings) openaiSettings.style.display = 'none';
-        if (chutesSettings) chutesSettings.style.display = 'none';
-        
-        // Show the appropriate section based on provider
-        if (provider === 'openrouter' && openrouterSettings) {
-            openrouterSettings.style.display = 'block';
-        } else if (provider === 'openai' && openaiSettings) {
-            openaiSettings.style.display = 'block';
-        } else if (provider === 'chutes' && chutesSettings) {
-            chutesSettings.style.display = 'block';
+    // Smart model/endpoint detection and parsing
+    function detectProviderFromInput(value) {
+        if (!value || !value.trim()) {
+            return { provider: 'openrouter', model: '', endpoint: '' };
         }
         
-        // Ensure field synchronization after visibility changes
-        syncModelFields();
+        const trimmedValue = value.trim();
+        
+        // Check if it starts with http:// or https:// (OpenAI-compatible endpoint)
+        if (trimmedValue.startsWith('http://') || trimmedValue.startsWith('https://')) {
+            return { 
+                provider: 'openai', 
+                model: '', 
+                endpoint: trimmedValue 
+            };
+        }
+        
+        // Otherwise assume it's an OpenRouter model (provider/model format)
+        return { 
+            provider: 'openrouter', 
+            model: trimmedValue, 
+            endpoint: '' 
+        };
     }
     
-    // Sync model values between provider-specific model fields
-    function syncModelFields() {
-        const provider = document.getElementById('provider').value;
-        const mainModelField = document.getElementById('model');
-        const chutesModelField = document.getElementById('model-chutes');
+    function updateProviderFields(detection) {
+        // Update hidden fields for backend
+        const providerField = document.getElementById('provider');
+        const endpointField = document.getElementById('openai_endpoint');
+        const detectedSpan = document.getElementById('provider-detected');
+        const apiKeySection = document.querySelector('#api_key').closest('.mb-4');
+        const apiKeyHelp = document.getElementById('api-key-help');
         
-        if (provider === 'chutes' && chutesModelField && mainModelField) {
-            if (chutesModelField.value !== mainModelField.value) {
-                chutesModelField.value = mainModelField.value;
-            }
-        } else if (provider === 'openrouter' && chutesModelField && mainModelField) {
-            if (mainModelField.value !== chutesModelField.value) {
-                mainModelField.value = chutesModelField.value;
+        if (providerField) providerField.value = detection.provider;
+        if (endpointField) endpointField.value = detection.endpoint;
+        
+        // Update UI feedback
+        if (detectedSpan) {
+            detectedSpan.textContent = detection.provider === 'openrouter' ? 'OpenRouter' : 'OpenAI-Compatible';
+        }
+        
+        // Show/hide API key field based on provider
+        if (apiKeySection) {
+            if (detection.provider === 'openrouter') {
+                apiKeySection.style.display = 'block';
+                if (apiKeyHelp) {
+                    apiKeyHelp.textContent = 'Your OpenRouter API key (will update saved token)';
+                }
+            } else {
+                apiKeySection.style.display = 'none';
             }
         }
+    }
+    
+    function handleModelEndpointChange() {
+        const modelEndpointField = document.getElementById('model-endpoint');
+        if (!modelEndpointField) return;
+        
+        const detection = detectProviderFromInput(modelEndpointField.value);
+        updateProviderFields(detection);
+        
+        // Always keep the name as 'model' for form submission
+        modelEndpointField.setAttribute('name', 'model');
+        
+        // Update the hidden fields immediately
+        const providerField = document.getElementById('provider');
+        const endpointField = document.getElementById('openai_endpoint');
+        
+        if (providerField) providerField.value = detection.provider;
+        if (endpointField) endpointField.value = detection.endpoint;
     }
     
     // Auto-save settings function
     function autoSaveSettings() {
         const formData = new FormData(domElements.settingsFormInline);
         
-        // Always get provider and model values from the accordion fields, regardless of accordion state
-        const providerField = document.getElementById('provider');
-        const provider = providerField ? providerField.value : 'openrouter';
+        // Get the current detection to handle API keys correctly
+        const modelEndpointField = document.getElementById('model-endpoint');
+        const detection = detectProviderFromInput(modelEndpointField ? modelEndpointField.value : '');
         
-        // Ensure the correct model value is used based on provider selection
-        let modelValue = '';
-        if (provider === 'chutes') {
-            const chutesModelField = document.getElementById('model-chutes');
-            modelValue = chutesModelField ? chutesModelField.value : '';
-        } else if (provider === 'openrouter') {
-            const openrouterModelField = document.getElementById('model');
-            modelValue = openrouterModelField ? openrouterModelField.value : '';
-        }
-        // OpenAI doesn't need a model field
-        
-        // Override form data with the correct values from accordion
-        formData.set('provider', provider);
-        if (modelValue) {
-            formData.set('model', modelValue);
+        // The hidden fields are already updated by handleModelEndpointChange
+        // Just ensure form data reflects the correct values
+        if (detection.provider === 'openrouter') {
+            formData.set('model', detection.model);
+            formData.set('openai_endpoint', ''); // Clear endpoint for OpenRouter
+        } else if (detection.provider === 'openai') {
+            formData.set('model', ''); // No model needed for OpenAI-compatible
+            formData.set('openai_endpoint', detection.endpoint);
         }
         
-        // Handle OpenRouter API key separately if it's being changed
-        const openrouterApiKey = formData.get('openrouter_api_key');
-        if (openrouterApiKey && openrouterApiKey.trim()) {
-            // Update the main OpenRouter token
-            fetch('/set_token', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams({
-                    'token': openrouterApiKey.trim()
+        // Handle API key updates based on provider
+        const apiKey = formData.get('openrouter_api_key');
+        if (apiKey && apiKey.trim()) {
+            if (detection.provider === 'openrouter') {
+                // Update the main OpenRouter token
+                fetch('/set_token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        'token': apiKey.trim()
+                    })
                 })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Clear the field after successful save
-                    document.getElementById('openrouter_api_key').value = '';
-                    
-                    // Enable the submit button if it was disabled
-                    if (domElements.submitBtn.disabled) {
-                        domElements.submitBtn.disabled = false;
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Clear the field after successful save
+                        document.getElementById('api_key').value = '';
+                        
+                        // Enable the submit button if it was disabled
+                        if (domElements.submitBtn.disabled) {
+                            domElements.submitBtn.disabled = false;
+                        }
+                        
+                        // Show success feedback
+                        if (!autosaveToast) {
+                            autosaveToast = new bootstrap.Toast(domElements.autosaveToast, {
+                                animation: true,
+                                autohide: true,
+                                delay: 2000
+                            });
+                        }
+                        const toastBody = domElements.autosaveToast.querySelector('.toast-body span');
+                        toastBody.textContent = 'API key updated!';
+                        autosaveToast.show();
+                    } else {
+                        console.error('Error updating API token:', data.error);
+                        alert('Error updating API key: ' + (data.error || 'Unknown error'));
                     }
-                    
-                    // Show success feedback
-                    if (!autosaveToast) {
-                        autosaveToast = new bootstrap.Toast(domElements.autosaveToast, {
-                            animation: true,
-                            autohide: true,
-                            delay: 2000
-                        });
-                    }
-                    const toastBody = domElements.autosaveToast.querySelector('.toast-body span');
-                    toastBody.textContent = 'OpenRouter API key updated!';
-                    autosaveToast.show();
-                } else {
-                    console.error('Error updating OpenRouter token:', data.error);
-                    alert('Error updating OpenRouter API key: ' + (data.error || 'Unknown error'));
-                }
-            })
-            .catch(error => {
-                console.error('Error updating OpenRouter token:', error);
-                alert('Error updating OpenRouter API key: ' + error.message);
-            });
+                })
+                .catch(error => {
+                    console.error('Error updating API token:', error);
+                    alert('Error updating API key: ' + error.message);
+                });
+            } else {
+                // For OpenAI-compatible, store as custom API key
+                formData.set('custom_api_key', apiKey.trim());
+                // Clear the field after saving
+                setTimeout(() => {
+                    document.getElementById('api_key').value = '';
+                }, 100);
+            }
             
-            // Remove the OpenRouter API key from the form data so it doesn't get saved in settings
-            formData.delete('openrouter_api_key');
+            // Remove from form data for OpenRouter (already handled above)
+            if (detection.provider === 'openrouter') {
+                formData.delete('openrouter_api_key');
+            }
         }
         
         fetch('/settings', {
@@ -1141,7 +1172,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Update window.config with the values that were actually sent
+                // Update window.config with the detected values
                 window.config = Object.assign(window.config || {}, {
                     model: formData.get('model'),
                     temperature: parseFloat(formData.get('temperature')),
@@ -1150,7 +1181,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     repetition_penalty: parseFloat(formData.get('repetition_penalty')),
                     max_tokens: parseInt(formData.get('max_tokens')),
                     dark_mode: formData.get('dark_mode') === 'on',
-                    provider: provider, // Use the provider from accordion
+                    provider: detection.provider,
                     custom_api_key: formData.get('custom_api_key'),
                     openai_endpoint: formData.get('openai_endpoint'),
                     embeddings_search: formData.get('embeddings_search') === 'on'
@@ -1204,48 +1235,28 @@ document.addEventListener('DOMContentLoaded', function() {
     domElements.settingsFormInline.addEventListener('input', debouncedAutoSave);
     domElements.settingsFormInline.addEventListener('change', debouncedAutoSave);
     
-    // Provider change handler
-    const providerSelect = document.getElementById('provider');
-    if (providerSelect) {
-        providerSelect.addEventListener('change', function() {
-            updateModelExamples();
-            syncModelFields();
+    // Model/Endpoint input change handler - this is the main smart input
+    const modelEndpointInput = document.getElementById('model-endpoint');
+    if (modelEndpointInput) {
+        modelEndpointInput.addEventListener('input', function() {
+            handleModelEndpointChange();
             debouncedAutoSave();
         });
         
-        // Initialize provider settings on page load - ensure correct provider is selected
-        // and all fields are properly synchronized
-        if (window.config && window.config.provider) {
-            providerSelect.value = window.config.provider;
-        }
-        updateModelExamples();
-        
-        // Ensure model fields have correct values on load
-        if (window.config && window.config.model) {
-            const modelField = document.getElementById('model');
-            const chutesModelField = document.getElementById('model-chutes');
+        // Initialize on page load based on current config
+        if (window.config) {
+            let initialValue = '';
+            if (window.config.provider === 'openai' && window.config.openai_endpoint) {
+                initialValue = window.config.openai_endpoint;
+            } else if (window.config.model) {
+                initialValue = window.config.model;
+            }
             
-            if (modelField) modelField.value = window.config.model;
-            if (chutesModelField) chutesModelField.value = window.config.model;
+            if (initialValue) {
+                modelEndpointInput.value = initialValue;
+                handleModelEndpointChange();
+            }
         }
-    }
-    
-    // OpenRouter model input change handler
-    const modelInput = document.getElementById('model');
-    if (modelInput) {
-        modelInput.addEventListener('input', function() {
-            syncModelFields();
-            debouncedAutoSave();
-        });
-    }
-    
-    // Chutes model input change handler
-    const chutesModelInput = document.getElementById('model-chutes');
-    if (chutesModelInput) {
-        chutesModelInput.addEventListener('input', function() {
-            syncModelFields();
-            debouncedAutoSave();
-        });
     }
     
     // Ctrl+S handler to show "Autosaved on edit" toast

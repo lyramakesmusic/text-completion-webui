@@ -1120,72 +1120,28 @@
             </div>
             <div class="sidebar-content">
                 <form id="settings-form-inline" class="settings-form">
-                    <!-- Provider Selection Accordion -->
+                    <!-- Smart Model/Endpoint Input -->
                     <div class="mb-4">
-                        <div class="accordion" id="providerSettingsAccordion">
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="providerHeading">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#providerCollapse" aria-expanded="false" aria-controls="providerCollapse">
-                                        <i class="bi bi-gear-fill me-2"></i>Provider
-                                    </button>
-                                </h2>
-                                <div id="providerCollapse" class="accordion-collapse collapse" aria-labelledby="providerHeading" data-bs-parent="#providerSettingsAccordion">
-                                    <div class="accordion-body">
-                                        <div class="mb-3">
-                                            <label for="provider" class="form-label">Provider</label>
-                                            <select class="form-select form-select-sm" id="provider" name="provider">
-                                                <option value="openrouter" {% if config.get('provider', 'openrouter') == 'openrouter' %}selected{% endif %}>OpenRouter</option>
-                                                <option value="openai" {% if config.get('provider', 'openrouter') == 'openai' %}selected{% endif %}>OpenAI-Compatible</option>
-                                                <option value="chutes" {% if config.get('provider', 'openrouter') == 'chutes' %}selected{% endif %}>Chutes AI</option>
-                                            </select>
-                                            <!-- <div class="form-text">Select the API provider to use</div> -->
-                                        </div>
-                                        
-                                        <!-- OpenRouter Settings -->
-                                        <div id="openrouter-settings">
-                                            <div class="mb-3" id="model-field-openrouter">
-                                                <label for="model" class="form-label">Model</label>
-                                                <input type="text" class="form-control form-control-sm" id="model" name="model" value="{{ config.model }}" required>
-                                                <div class="form-text" id="model-help-text">
-                                                    deepseek/deepseek-r1-0528<br>deepseek/deepseek-v3.1-base<br>moonshotai/kimi-k2<br>meta-llama/llama-3.1-405b
-                                                </div>
-                                            </div>
-                                            
-                                            <div class="mb-3" id="openrouter-api-key-field">
-                                                <label for="openrouter_api_key" class="form-label">OpenRouter API Key</label>
-                                                <input type="password" class="form-control form-control-sm" id="openrouter_api_key" name="openrouter_api_key" value="" placeholder="Set or change your OpenRouter API key">
-                                                <div class="form-text">This will update your main OpenRouter API token</div>
-                                            </div>
-                                        </div>
-                                        
-                                        <!-- OpenAI-Compatible Settings -->
-                                        <div id="openai-settings" style="display: none;">
-                                            <div class="mb-3" id="openai-endpoint-field">
-                                                <label for="openai_endpoint" class="form-label">Server Endpoint</label>
-                                                <input type="url" class="form-control form-control-sm" id="openai_endpoint" name="openai_endpoint" value="{{ config.get('openai_endpoint', 'http://localhost:8080/v1') }}" placeholder="http://localhost:8080/v1">
-                                                <div class="form-text">Base URL for your OpenAI-compatible server</div>
-                                            </div>
-                                        </div>
-                                        
-                                        <!-- Chutes AI Settings -->
-                                        <div id="chutes-settings" style="display: none;">
-                                            <div class="mb-3" id="model-field-chutes">
-                                                <label for="model-chutes" class="form-label">Model</label>
-                                                <input type="text" class="form-control form-control-sm" id="model-chutes" name="model" value="{{ config.model }}" required>
-                                                <div class="form-text" id="model-help-text-chutes">
-                                                </div>
-                                            </div>
-                                            
-                                            <div class="mb-3" id="chutes-api-key-field">
-                                                <label for="custom_api_key" class="form-label">Chutes API Key</label>
-                                                <input type="password" class="form-control form-control-sm" id="custom_api_key" name="custom_api_key" value="{{ config.get('custom_api_key', '') }}" placeholder="Your Chutes API key">
-                                                <div class="form-text">Your Chutes AI API key</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                        <label for="model-endpoint" class="form-label">Model / Endpoint</label>
+                        <input type="text" class="form-control form-control-sm" id="model-endpoint" name="model" value="{% if config.get('provider') == 'openai' and config.get('openai_endpoint') %}{{ config.get('openai_endpoint') }}{% else %}{{ config.model }}{% endif %}" required>
+                        <div class="form-text" id="model-endpoint-help">
+                            deepseek/deepseek-r1-0528<br>deepseek/deepseek-v3.1-base<br>moonshotai/kimi-k2<br>meta-llama/llama-3.1-405b<br>
                         </div>
+                        <div class="mt-2">
+                            <small style="color: var(--text-secondary);">Detected: <span id="provider-detected" style="color: var(--text-primary); font-weight: 500;">{% if config.get('provider') == 'openai' %}OpenAI-Compatible{% else %}OpenRouter{% endif %}</span></small>
+                        </div>
+                    </div>
+                    
+                    <!-- Hidden fields for backend compatibility -->
+                    <input type="hidden" id="provider" name="provider" value="{{ config.get('provider', 'openrouter') }}">
+                    <input type="hidden" id="openai_endpoint" name="openai_endpoint" value="{{ config.get('openai_endpoint', '') }}">
+                    <input type="hidden" id="custom_api_key" name="custom_api_key" value="{{ config.get('custom_api_key', '') }}">
+                    
+                    <!-- API Key Section -->
+                    <div class="mb-4">
+                        <label for="api_key" class="form-label">API Key</label>
+                        <input type="password" class="form-control form-control-sm" id="api_key" name="openrouter_api_key" value="" placeholder="Enter your API key">
+                        <div class="form-text" id="api-key-help">Your OpenRouter API key (will update main token)</div>
                     </div>
                     
                     <div class="mb-4">
