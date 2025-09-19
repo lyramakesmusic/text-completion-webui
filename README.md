@@ -1,4 +1,4 @@
-# OpenRouter Text Completion Interface
+# Text Completion Interface
 
 A simple writing/editing app for using base LLMs in a classic-gpt3-like text sandbox. Edit and reroll completions as desired with no setup or interface friction, just a text box and unlimited format potential.
 
@@ -65,3 +65,4 @@ You can change model settings through the settings panel:
 ## Contributing
 
 Contributions are welcome! Feel free to submit issues and pull requests.
+
