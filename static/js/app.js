@@ -1015,86 +1015,47 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // Update model examples and field visibility based on provider
+    // Update provider-specific settings visibility and ensure values are synchronized
     function updateModelExamples() {
+        const providerField = document.getElementById('provider');
+        if (!providerField) return;
+        
+        const provider = providerField.value;
+        const openrouterSettings = document.getElementById('openrouter-settings');
+        const openaiSettings = document.getElementById('openai-settings');
+        const chutesSettings = document.getElementById('chutes-settings');
+        
+        // Hide all provider sections first
+        if (openrouterSettings) openrouterSettings.style.display = 'none';
+        if (openaiSettings) openaiSettings.style.display = 'none';
+        if (chutesSettings) chutesSettings.style.display = 'none';
+        
+        // Show the appropriate section based on provider
+        if (provider === 'openrouter' && openrouterSettings) {
+            openrouterSettings.style.display = 'block';
+        } else if (provider === 'openai' && openaiSettings) {
+            openaiSettings.style.display = 'block';
+        } else if (provider === 'chutes' && chutesSettings) {
+            chutesSettings.style.display = 'block';
+        }
+        
+        // Ensure field synchronization after visibility changes
+        syncModelFields();
+    }
+    
+    // Sync model values between provider-specific model fields
+    function syncModelFields() {
         const provider = document.getElementById('provider').value;
-        const modelHelpText = document.getElementById('model-help-text');
-        const openaiEndpointField = document.getElementById('openai-endpoint-field');
-        const modelField = document.getElementById('model-field');
-        const openrouterApiKeyField = document.getElementById('openrouter-api-key-field');
-        const customApiKeyField = document.getElementById('custom-api-key-field');
+        const mainModelField = document.getElementById('model');
+        const chutesModelField = document.getElementById('model-chutes');
         
-        // Show/hide fields based on provider
-        if (provider === 'openrouter') {
-            // For OpenRouter: show only the OpenRouter API key field
-            modelField.style.display = 'none';
-            openaiEndpointField.style.display = 'none';
-            openrouterApiKeyField.style.display = 'block';
-            customApiKeyField.style.display = 'none';
-        } else if (provider === 'openai') {
-            // For OpenAI: show model, endpoint, and custom API key fields
-            modelField.style.display = 'block';
-            openaiEndpointField.style.display = 'block';
-            openrouterApiKeyField.style.display = 'none';
-            customApiKeyField.style.display = 'block';
-            modelHelpText.innerHTML = 'N/A';
-        } else if (provider === 'chutes') {
-            // For Chutes: show model and custom API key fields
-            modelField.style.display = 'block';
-            openaiEndpointField.style.display = 'none';
-            openrouterApiKeyField.style.display = 'none';
-            customApiKeyField.style.display = 'block';
-            modelHelpText.innerHTML = 'deepseek/deepseek-r1-0528:free<br>deepseek/deepseek-v3-base<br>thudm/glm-4-32b:free<br>moonshotai/kimi-k2:free<br>meta-llama/llama-3.1-405b';
-        }
-        
-        // Update model examples for non-OpenRouter providers
-        if (provider === 'openrouter') {
-            // No model field shown for OpenRouter, so no need to update help text
-        } else if (provider === 'openai') {
-            modelHelpText.innerHTML = '';
-        } else if (provider === 'chutes') {
-            modelHelpText.innerHTML = 'deepseek/deepseek-r1-0528:free<br>deepseek/deepseek-v3-base<br>thudm/glm-4-32b:free<br>moonshotai/kimi-k2:free<br>meta-llama/llama-3.1-405b';
-        }
-    }
-    
-    // Update main model field examples when accordion is closed
-    function updateMainModelExamples() {
-        const mainModelHelpText = document.getElementById('main-model-help-text');
-        // Always show OpenRouter examples when accordion is closed
-        mainModelHelpText.innerHTML = 'deepseek/deepseek-r1-0528:free<br>deepseek/deepseek-v3-base<br>thudm/glm-4-32b:free<br>moonshotai/kimi-k2:free<br>meta-llama/llama-3.1-405b';
-    }
-    
-    // Sync model values between main and advanced fields
-    function syncModelFields(fromField, toField) {
-        const from = document.getElementById(fromField);
-        const to = document.getElementById(toField);
-        if (from && to && from.value !== to.value) {
-            to.value = from.value;
-        }
-    }
-    
-    // Handle accordion state changes
-    function handleAccordionToggle(isOpen) {
-        const mainModelField = document.getElementById('model-main');
-        const advancedModelField = document.getElementById('model');
-        
-        if (isOpen) {
-            // Accordion opened - disable main field, enable advanced
-            mainModelField.disabled = true;
-            mainModelField.style.opacity = '0.6';
-            if (advancedModelField) {
-                advancedModelField.disabled = false;
-                // Sync value from main to advanced
-                syncModelFields('model-main', 'model');
+        if (provider === 'chutes' && chutesModelField && mainModelField) {
+            if (chutesModelField.value !== mainModelField.value) {
+                chutesModelField.value = mainModelField.value;
             }
-        } else {
-            // Accordion closed - enable main field, assume OpenRouter
-            mainModelField.disabled = false;
-            mainModelField.style.opacity = '1';
-            updateMainModelExamples();
-            if (advancedModelField) {
-                // Sync value from advanced to main
-                syncModelFields('model', 'model-main');
+        } else if (provider === 'openrouter' && chutesModelField && mainModelField) {
+            if (mainModelField.value !== chutesModelField.value) {
+                mainModelField.value = chutesModelField.value;
             }
         }
     }
@@ -1102,6 +1063,27 @@ document.addEventListener('DOMContentLoaded', function() {
     // Auto-save settings function
     function autoSaveSettings() {
         const formData = new FormData(domElements.settingsFormInline);
+        
+        // Always get provider and model values from the accordion fields, regardless of accordion state
+        const providerField = document.getElementById('provider');
+        const provider = providerField ? providerField.value : 'openrouter';
+        
+        // Ensure the correct model value is used based on provider selection
+        let modelValue = '';
+        if (provider === 'chutes') {
+            const chutesModelField = document.getElementById('model-chutes');
+            modelValue = chutesModelField ? chutesModelField.value : '';
+        } else if (provider === 'openrouter') {
+            const openrouterModelField = document.getElementById('model');
+            modelValue = openrouterModelField ? openrouterModelField.value : '';
+        }
+        // OpenAI doesn't need a model field
+        
+        // Override form data with the correct values from accordion
+        formData.set('provider', provider);
+        if (modelValue) {
+            formData.set('model', modelValue);
+        }
         
         // Handle OpenRouter API key separately if it's being changed
         const openrouterApiKey = formData.get('openrouter_api_key');
@@ -1159,7 +1141,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Update window.config
+                // Update window.config with the values that were actually sent
                 window.config = Object.assign(window.config || {}, {
                     model: formData.get('model'),
                     temperature: parseFloat(formData.get('temperature')),
@@ -1168,13 +1150,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     repetition_penalty: parseFloat(formData.get('repetition_penalty')),
                     max_tokens: parseInt(formData.get('max_tokens')),
                     dark_mode: formData.get('dark_mode') === 'on',
-                    provider: formData.get('provider'),
+                    provider: provider, // Use the provider from accordion
                     custom_api_key: formData.get('custom_api_key'),
                     openai_endpoint: formData.get('openai_endpoint'),
                     embeddings_search: formData.get('embeddings_search') === 'on'
                 });
-                
-                // Editor colors now handled by CSS variables automatically
                 
                 // Silent auto-save (no toast)
             }
@@ -1229,50 +1209,43 @@ document.addEventListener('DOMContentLoaded', function() {
     if (providerSelect) {
         providerSelect.addEventListener('change', function() {
             updateModelExamples();
+            syncModelFields();
             debouncedAutoSave();
         });
         
-        // Initialize model examples on page load
+        // Initialize provider settings on page load - ensure correct provider is selected
+        // and all fields are properly synchronized
+        if (window.config && window.config.provider) {
+            providerSelect.value = window.config.provider;
+        }
         updateModelExamples();
+        
+        // Ensure model fields have correct values on load
+        if (window.config && window.config.model) {
+            const modelField = document.getElementById('model');
+            const chutesModelField = document.getElementById('model-chutes');
+            
+            if (modelField) modelField.value = window.config.model;
+            if (chutesModelField) chutesModelField.value = window.config.model;
+        }
     }
     
-    // Main model input change handler
-    const mainModelInput = document.getElementById('model-main');
-    if (mainModelInput) {
-        mainModelInput.addEventListener('input', function() {
-            // Sync to advanced field if it exists
-            syncModelFields('model-main', 'model');
-            debouncedAutoSave();
-        });
-    }
-    
-    // Advanced model input change handler
+    // OpenRouter model input change handler
     const modelInput = document.getElementById('model');
     if (modelInput) {
         modelInput.addEventListener('input', function() {
-            // Sync to main field if accordion is open
-            const accordion = document.getElementById('advancedCollapse');
-            if (accordion && accordion.classList.contains('show')) {
-                syncModelFields('model', 'model-main');
-            }
+            syncModelFields();
             debouncedAutoSave();
         });
     }
     
-    // Accordion event listeners
-    const accordionElement = document.getElementById('advancedCollapse');
-    if (accordionElement) {
-        accordionElement.addEventListener('shown.bs.collapse', function() {
-            handleAccordionToggle(true);
+    // Chutes model input change handler
+    const chutesModelInput = document.getElementById('model-chutes');
+    if (chutesModelInput) {
+        chutesModelInput.addEventListener('input', function() {
+            syncModelFields();
+            debouncedAutoSave();
         });
-        
-        accordionElement.addEventListener('hidden.bs.collapse', function() {
-            handleAccordionToggle(false);
-        });
-        
-        // Initialize state based on current accordion state
-        const isOpen = accordionElement.classList.contains('show');
-        handleAccordionToggle(isOpen);
     }
     
     // Ctrl+S handler to show "Autosaved on edit" toast
@@ -1352,6 +1325,10 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Disable submit button
         this.disabled = true;
+        
+        // Ensure settings are saved with current accordion values before generation
+        // This guarantees the generation uses the selected provider/model
+        autoSaveSettings();
         
         // Get content and strip trailing spaces from each line while preserving newlines
         const content = editor.value
