@@ -883,66 +883,62 @@ def stream_generator(generation_id):
         'Content-Type': 'application/json'
     }
     
+    # Check if using Anthropic model for special handling
+    use_anthropic_trick = 'anthropic' in config['model'].lower()
+    
     # Primary model configuration
-    payload = {
-        'model': config['model'],
-        'prompt': prompt,
-        'temperature': config['temperature'],
-        'min_p': config['min_p'],
-        'presence_penalty': config['presence_penalty'],
-        'repetition_penalty': config['repetition_penalty'],
-        'max_tokens': config['max_tokens'],
-        'stream': True
-    }
+    if use_anthropic_trick:
+        # Use chat completions endpoint with untitled.txt trick for Anthropic
+        endpoint_url = 'https://openrouter.ai/api/v1/chat/completions'
+        payload = {
+            'model': config['model'],
+            'max_tokens': config['max_tokens'],
+            'temperature': config['temperature'],
+            'system': "The assistant is in CLI simulation mode, and responds to the user's CLI commands only with the output of the command.",
+            'messages': [
+                {
+                    'role': 'user',
+                    'content': f"<cmd>cat untitled.txt</cmd> (5.8 KB)"
+                },
+                {
+                    'role': 'assistant',
+                    'content': prompt
+                }
+            ],
+            'stream': True
+        }
+    else:
+        # Standard completions endpoint
+        endpoint_url = config['endpoint']
+        payload = {
+            'model': config['model'],
+            'prompt': prompt,
+            'temperature': config['temperature'],
+            'min_p': config['min_p'],
+            'presence_penalty': config['presence_penalty'],
+            'repetition_penalty': config['repetition_penalty'],
+            'max_tokens': config['max_tokens'],
+            'stream': True
+        }
     
     try:
-        with requests.post(config['endpoint'], headers=headers, json=payload, stream=True) as response:
-            # If primary model fails with a 4xx error, try the first fallback model
-            if response.status_code >= 400 and response.status_code < 500:
-                # Add specific error messages for common status codes before trying fallbacks
-                if response.status_code == 404:
-                    yield "data: " + json.dumps({"error": "Error 404: Model not found - Check your model name in settings"}) + "\n\n"
-                    return
-                elif response.status_code == 401:
-                    yield "data: " + json.dumps({"error": "Error 401: Invalid API token - Please check your OpenRouter token"}) + "\n\n"
-                    return
-                elif response.status_code == 402:
-                    yield "data: " + json.dumps({"error": "Error 402: Insufficient credits - Add more credits to your OpenRouter account"}) + "\n\n"
-                    return
-                elif response.status_code == 403:
-                    yield "data: " + json.dumps({"error": "Error 403: Content blocked - Your prompt was flagged by content moderation"}) + "\n\n"
-                    return
-                elif response.status_code == 429:
-                    yield "data: " + json.dumps({"error": "Error 429: Rate limited - Please wait a moment and try again"}) + "\n\n"
-                    return
-                
-                logger.info(f"Primary model failed with status {response.status_code}, trying first fallback model")
-                
-                # First fallback model configuration (405b)
-                fallback_payload = payload.copy()
-                fallback_payload['model'] = 'meta-llama/llama-3.1-405b'
-                
-                with requests.post(config['endpoint'], headers=headers, json=fallback_payload, stream=True) as fallback_response:
-                    if fallback_response.status_code >= 400 and fallback_response.status_code < 500:
-                        logger.info(f"First fallback model failed with status {fallback_response.status_code}, trying second fallback model")
-                        
-                        # Second fallback model configuration (70b)
-                        second_fallback_payload = payload.copy()
-                        second_fallback_payload['model'] = 'meta-llama/llama-3-70b'
-                        
-                        with requests.post(config['endpoint'], headers=headers, json=second_fallback_payload, stream=True) as second_fallback_response:
-                            if second_fallback_response.status_code != 200:
-                                yield "data: " + json.dumps({"error": f"All models failed. Status codes: {response.status_code}, {fallback_response.status_code}, {second_fallback_response.status_code}"}) + "\n\n"
-                                return
-                            
-                            # Process the second fallback model response
-                            response = second_fallback_response
-                    elif fallback_response.status_code != 200:
-                        yield "data: " + json.dumps({"error": f"API error: {fallback_response.status_code}"}) + "\n\n"
-                        return
-                    else:
-                        # Process the first fallback model response
-                        response = fallback_response
+        with requests.post(endpoint_url, headers=headers, json=payload, stream=True) as response:
+            # Check for errors
+            if response.status_code == 404:
+                yield "data: " + json.dumps({"error": "Error 404: Model not found - Check your model name in settings"}) + "\n\n"
+                return
+            elif response.status_code == 401:
+                yield "data: " + json.dumps({"error": "Error 401: Invalid API token - Please check your OpenRouter token"}) + "\n\n"
+                return
+            elif response.status_code == 402:
+                yield "data: " + json.dumps({"error": "Error 402: Insufficient credits - Add more credits to your OpenRouter account"}) + "\n\n"
+                return
+            elif response.status_code == 403:
+                yield "data: " + json.dumps({"error": "Error 403: Content blocked - Your prompt was flagged by content moderation"}) + "\n\n"
+                return
+            elif response.status_code == 429:
+                yield "data: " + json.dumps({"error": "Error 429: Rate limited - Please wait a moment and try again"}) + "\n\n"
+                return
             elif response.status_code != 200:
                 yield "data: " + json.dumps({"error": f"API error: {response.status_code}"}) + "\n\n"
                 return
@@ -973,7 +969,15 @@ def stream_generator(generation_id):
                             
                             try:
                                 data_obj = json.loads(data_str)
-                                content = data_obj.get("choices", [{}])[0].get("text", "")
+                                # Handle both completions and chat completions formats
+                                if use_anthropic_trick:
+                                    # Chat completions format: choices[0].delta.content
+                                    delta = data_obj.get("choices", [{}])[0].get("delta", {})
+                                    content = delta.get("content", "")
+                                else:
+                                    # Standard completions format: choices[0].text
+                                    content = data_obj.get("choices", [{}])[0].get("text", "")
+                                
                                 if content:
                                     yield "data: " + json.dumps({
                                         "text": content
