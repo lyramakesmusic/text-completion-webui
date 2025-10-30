@@ -1125,7 +1125,7 @@
                         <label for="model-endpoint" class="form-label">Model / Endpoint</label>
                         <input type="text" class="form-control form-control-sm" id="model-endpoint" name="model" value="{% if config.get('provider') == 'openai' and config.get('openai_endpoint') %}{{ config.get('openai_endpoint') }}{% else %}{{ config.model }}{% endif %}" required>
                         <div class="form-text" id="model-endpoint-help">
-                            deepseek/deepseek-r1-0528<br>deepseek/deepseek-v3.1-base<br>moonshotai/kimi-k2<br>meta-llama/llama-3.1-405b<br>
+                            anthropic/claude-sonnet-4.5<br>deepseek/deepseek-r1-0528<br>moonshotai/kimi-k2::deepinfra/fp4<br>meta-llama/llama-3.1-405b<br>http://localhost:1234/v1<br>
                         </div>
                         <div class="mt-2">
                             <small style="color: var(--text-secondary);">Detected: <span id="provider-detected" style="color: var(--text-primary); font-weight: 500;">{% if config.get('provider') == 'openai' %}OpenAI-Compatible{% else %}OpenRouter{% endif %}</span></small>

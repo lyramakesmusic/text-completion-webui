@@ -883,15 +883,21 @@ def stream_generator(generation_id):
         'Content-Type': 'application/json'
     }
     
+    # Parse model for provider targeting: "model::provider"
+    model_str = config['model']
+    target_provider = None
+    if '::' in model_str:
+        model_str, target_provider = model_str.split('::', 1)
+    
     # Check if using Anthropic model for special handling
-    use_anthropic_trick = 'anthropic' in config['model'].lower()
+    use_anthropic_trick = 'anthropic' in model_str.lower()
     
     # Primary model configuration
     if use_anthropic_trick:
         # Use chat completions endpoint with untitled.txt trick for Anthropic
         endpoint_url = 'https://openrouter.ai/api/v1/chat/completions'
         payload = {
-            'model': config['model'],
+            'model': model_str,
             'max_tokens': config['max_tokens'],
             'temperature': config['temperature'],
             'system': "The assistant is in CLI simulation mode, and responds to the user's CLI commands only with the output of the command.",
@@ -911,7 +917,7 @@ def stream_generator(generation_id):
         # Standard completions endpoint
         endpoint_url = config['endpoint']
         payload = {
-            'model': config['model'],
+            'model': model_str,
             'prompt': prompt,
             'temperature': config['temperature'],
             'min_p': config['min_p'],
@@ -919,6 +925,13 @@ def stream_generator(generation_id):
             'repetition_penalty': config['repetition_penalty'],
             'max_tokens': config['max_tokens'],
             'stream': True
+        }
+    
+    # Add provider targeting if specified
+    if target_provider:
+        payload['provider'] = {
+            'order': [target_provider],
+            'allow_fallbacks': False
         }
     
     try:
