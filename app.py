@@ -1,19 +1,13 @@
-from flask import Flask, render_template, request, jsonify, Response, session
+from flask import Flask, render_template, request, jsonify, Response
 import requests
 import json
 import os
 import uuid
 import datetime
 import logging
-from threading import Timer
-from threading import Lock
+from threading import Timer, Lock
 import numpy as np
 from model2vec import StaticModel
-
-# ============================
-# Embeddings Configuration
-# ============================
-EMBEDDINGS_SIMILARITY_THRESHOLD = 0.1  # Cosine similarity threshold for search results
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, 
@@ -77,9 +71,13 @@ active_generations = {}
 
 # In-memory document storage
 documents_cache = {}
-write_timer = None
+document_write_timers = {}  # per-document write timers
+document_last_write = {}  # track last write time for 30s max delay
 write_lock = Lock()
-WRITE_DELAY = 1.0  # seconds
+WRITE_DELAY_TYPING = 2.0  # seconds after typing stops
+WRITE_DELAY_MAX = 30.0  # max seconds between writes during continuous typing
+settings_write_timer = None
+settings_write_lock = Lock()
 
 # Embeddings model - initialize lazily
 embeddings_model = None
@@ -234,6 +232,15 @@ def save_config(config):
         logger.error(f"Error saving configuration: {e}")
         return False
 
+def schedule_settings_write():
+    """Schedule a config write after 1s of no settings changes"""
+    global settings_write_timer
+    with settings_write_lock:
+        if settings_write_timer:
+            settings_write_timer.cancel()
+        settings_write_timer = Timer(1.0, save_config, args=[config])
+        settings_write_timer.start()
+
 # Load configuration at app startup
 config = load_config()
 
@@ -245,25 +252,44 @@ def get_document_path(doc_id):
     """Get the file path for a document"""
     return os.path.join(DOCUMENTS_DIR, f"{doc_id}.json")
 
-def schedule_write():
-    """Schedule a write of the documents cache to disk"""
-    global write_timer
-    if write_timer:
-        write_timer.cancel()
-    write_timer = Timer(WRITE_DELAY, write_documents_to_disk)
-    write_timer.start()
-
-def write_documents_to_disk():
-    """Write all cached documents to disk"""
+def write_document_to_disk(doc_id):
+    """Write a single document to disk"""
     with write_lock:
-        for doc_id, document in documents_cache.items():
-            doc_path = get_document_path(doc_id)
-            try:
-                with open(doc_path, 'w') as f:
-                    json.dump(document, f, indent=2)
-                logger.info(f"Document {doc_id} saved to disk")
-            except Exception as e:
-                logger.error(f"Error saving document {doc_id} to disk: {e}")
+        if doc_id not in documents_cache:
+            return
+        document = documents_cache[doc_id]
+        doc_path = get_document_path(doc_id)
+        try:
+            with open(doc_path, 'w') as f:
+                json.dump(document, f, indent=2)
+            document_last_write[doc_id] = datetime.datetime.now()
+            logger.info(f"Document {doc_id} saved to disk")
+        except Exception as e:
+            logger.error(f"Error saving document {doc_id} to disk: {e}")
+
+def schedule_document_write(doc_id, force_max_delay=False):
+    """Schedule a write for a specific document with 2s/30s logic"""
+    import time
+    
+    # Cancel existing timer for this document
+    if doc_id in document_write_timers:
+        document_write_timers[doc_id].cancel()
+    
+    # Check if we need to force write due to 30s max delay
+    last_write = document_last_write.get(doc_id)
+    now = datetime.datetime.now()
+    
+    if last_write and force_max_delay:
+        time_since_write = (now - last_write).total_seconds()
+        if time_since_write >= WRITE_DELAY_MAX:
+            # Force immediate write
+            write_document_to_disk(doc_id)
+            return
+    
+    # Schedule write after 2s of inactivity
+    timer = Timer(WRITE_DELAY_TYPING, write_document_to_disk, args=[doc_id])
+    document_write_timers[doc_id] = timer
+    timer.start()
 
 def load_document(doc_id):
     """Load a document from cache or disk"""
@@ -289,13 +315,14 @@ def load_document(doc_id):
         logger.error(f"Error loading document {doc_id}: {e}")
         return None
 
-def save_document(doc_id, document):
-    """Save a document to cache and schedule disk write"""
+def save_document(doc_id, document, schedule_write=True):
+    """Save a document to cache and optionally schedule disk write"""
     try:
         # Update cache
         documents_cache[doc_id] = document
-        # Schedule write to disk
-        schedule_write()
+        # Schedule write to disk if requested
+        if schedule_write:
+            schedule_document_write(doc_id, force_max_delay=True)
         logger.info(f"Document {doc_id} saved to cache")
         return True
     except Exception as e:
@@ -344,8 +371,10 @@ def create_new_document(name="Untitled"):
         'name_embedding': name_embedding
     }
     
-    if save_document(doc_id, document):
-        # Update config
+    # Write immediately since it's a new document
+    if save_document(doc_id, document, schedule_write=False):
+        write_document_to_disk(doc_id)
+        # Update config and save (new document added to list)
         if doc_id not in config['documents']:
             config['documents'].append(doc_id)
         config['current_document'] = doc_id
@@ -468,13 +497,178 @@ def get_all_documents():
             })
     return sorted(documents, key=lambda x: x['updated_at'], reverse=True)
 
-def document_exists(doc_id):
-    """Check if a document exists"""
-    return os.path.exists(get_document_path(doc_id))
-
 # ============================
 # API Functions
 # ============================
+
+# HTTP error code mapping
+HTTP_ERROR_MESSAGES = {
+    401: "Authentication failed - Check your API token",
+    402: "Insufficient credits - Add more credits to your account",
+    403: "Access forbidden - Your token may not have permission for this model",
+    404: "Model or endpoint not found - Check your configuration",
+    408: "Request timeout - Try with a shorter prompt",
+    429: "Rate limited - Too many requests, please wait and try again",
+    502: "Server unavailable - The model server is down or overloaded",
+    503: "No available provider - Try a different model"
+}
+
+def sse_event(data):
+    """Helper to format SSE events"""
+    return "data: " + json.dumps(data) + "\n\n"
+
+def cleanup_generation(generation_id):
+    """Remove generation from active list"""
+    if generation_id in active_generations:
+        del active_generations[generation_id]
+
+def get_http_error_message(status_code, prefix="API"):
+    """Get user-friendly error message for HTTP status code"""
+    base_msg = HTTP_ERROR_MESSAGES.get(status_code, f"Unknown error (status {status_code})")
+    return f"Error {status_code}: {base_msg}"
+
+def parse_sse_stream(buffer_chunk, response_format='openai'):
+    """Parse SSE stream chunks and extract content
+    Returns: (content_text, is_done)
+    response_format: 'openai' for completions, 'chat' for chat completions
+    """
+    if not buffer_chunk.startswith('data: '):
+        return None, False
+    
+    data_str = buffer_chunk[6:]
+    if data_str == '[DONE]':
+        return None, True
+    
+    try:
+        data_obj = json.loads(data_str)
+        if response_format == 'chat':
+            # Chat completions: choices[0].delta.content
+            delta = data_obj.get("choices", [{}])[0].get("delta", {})
+            return delta.get("content", ""), False
+        else:
+            # Standard completions: choices[0].text or direct content field
+            if "choices" in data_obj and len(data_obj["choices"]) > 0:
+                return data_obj["choices"][0].get("text", ""), False
+            return data_obj.get("content", ""), False
+    except json.JSONDecodeError:
+        return None, False
+
+def handle_auto_rename_and_save(generation_id):
+    """Handle auto-rename and document save after generation completes"""
+    generation_data = active_generations.get(generation_id)
+    if not generation_data or not generation_data.get('document_id'):
+        return None
+    
+    doc_id = generation_data['document_id']
+    document = load_document(doc_id)
+    
+    # Auto-rename if still "Untitled" and has content
+    new_name = None
+    if document and document.get('name') == 'Untitled' and document.get('content'):
+        try:
+            new_name = generate_document_name(document['content'])
+            if new_name and new_name != 'Untitled':
+                success, updated_doc = update_document_metadata(doc_id, new_name)
+                if not success:
+                    new_name = None
+        except Exception as e:
+            logger.error(f"Error during auto-rename: {e}")
+            new_name = None
+    
+    # Write document immediately after API response completes
+    write_document_to_disk(doc_id)
+    
+    return new_name
+
+def stream_api_request(endpoint_url, headers, payload, generation_id, response_format='openai', api_name='API'):
+    """Unified streaming handler for all API providers
+    
+    Args:
+        endpoint_url: API endpoint URL
+        headers: Request headers dict
+        payload: Request payload dict
+        generation_id: Generation ID for tracking
+        response_format: 'openai' or 'chat' for parsing
+        api_name: Name for error messages
+    """
+    generation_data = active_generations[generation_id]
+    
+    try:
+        logger.info(f"Making {api_name} request to: {endpoint_url}")
+        
+        with requests.post(endpoint_url, headers=headers, json=payload, stream=True, timeout=30) as response:
+            # Handle HTTP errors
+            if response.status_code != 200:
+                error_msg = get_http_error_message(response.status_code, api_name)
+                
+                # Try to get more detail from response
+                try:
+                    error_detail = response.json()
+                    if 'error' in error_detail:
+                        if isinstance(error_detail['error'], dict) and 'message' in error_detail['error']:
+                            error_msg += f": {error_detail['error']['message']}"
+                        else:
+                            error_msg += f": {error_detail['error']}"
+                except:
+                    pass
+                
+                logger.error(error_msg)
+                yield sse_event({"error": error_msg})
+                return
+            
+            # Stream response
+            buffer = ""
+            was_cancelled = False
+            for chunk in response.iter_content(chunk_size=1024, decode_unicode=False):
+                if not generation_data['active']:
+                    yield sse_event({"cancelled": True})
+                    was_cancelled = True
+                    break
+                
+                if chunk:
+                    buffer += chunk.decode('utf-8', errors='replace')
+                    while True:
+                        line_end = buffer.find('\n')
+                        if line_end == -1:
+                            break
+                        
+                        line = buffer[:line_end].strip()
+                        buffer = buffer[line_end + 1:]
+                        
+                        if line.startswith('data: '):
+                            content, is_done = parse_sse_stream(line, response_format)
+                            if is_done:
+                                break
+                            if content:
+                                yield sse_event({"text": content})
+            
+            # Only handle completion if not cancelled
+            if not was_cancelled:
+                new_name = handle_auto_rename_and_save(generation_id)
+                if new_name:
+                    yield sse_event({"auto_renamed": True, "new_name": new_name})
+                
+                cleanup_generation(generation_id)
+                yield sse_event({"done": True})
+            else:
+                # Just save and cleanup on cancel
+                generation_data = active_generations.get(generation_id)
+                if generation_data and generation_data.get('document_id'):
+                    write_document_to_disk(generation_data['document_id'])
+                cleanup_generation(generation_id)
+            
+    except requests.exceptions.Timeout:
+        logger.error(f"{api_name} timeout")
+        yield sse_event({"error": f"{api_name} timeout - server took too long to respond"})
+        cleanup_generation(generation_id)
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"{api_name} connection error: {str(e)}")
+        yield sse_event({"error": f"{api_name} connection error - unable to connect to server"})
+        cleanup_generation(generation_id)
+    except Exception as e:
+        logger.error(f"{api_name} error: {str(e)}")
+        yield sse_event({"error": f"{api_name} error: {str(e)}"})
+        cleanup_generation(generation_id)
 
 def is_openrouter_format(endpoint_or_model):
     """
@@ -501,172 +695,19 @@ def openai_compat_stream_generator(generation_id):
     generation_data = active_generations[generation_id]
     prompt = generation_data['prompt']
     
-    # Use the OpenAI endpoint from config
+    # Normalize endpoint URL
     base_url = config.get('openai_endpoint', 'http://localhost:8080/v1')
-    endpoint_url = base_url
+    endpoint_url = base_url if base_url.endswith('/completions') else f"{base_url.rstrip('/')}/completions"
     
-    headers = {
-        'Content-Type': 'application/json'
-    }
-    
-    # Add authorization if token is provided
+    # Build headers
+    headers = {'Content-Type': 'application/json'}
     api_key = config.get('custom_api_key') or config.get('token')
     if api_key:
         headers['Authorization'] = f"Bearer {api_key}"
     
-    # OpenAI-compatible payload format
+    # Build payload
     payload = {
         'model': config['model'],
-        'prompt': prompt,
-        'temperature': config['temperature'],
-        'min_p': config['min_p'],
-        'presence_penalty': config['presence_penalty'],
-        'repetition_penalty': config['repetition_penalty'],  # Keep as repetition_penalty for OpenAI-compat
-        'max_tokens': config['max_tokens'],
-        'stream': True
-    }
-    
-    try:
-        # Normalize endpoint URL for OpenAI-compatible API
-        if not endpoint_url.endswith('/completions'):
-            if endpoint_url.endswith('/'):
-                endpoint_url = endpoint_url + 'completions'
-            else:
-                endpoint_url = endpoint_url + '/completions'
-        
-        logger.info(f"Making OpenAI-compatible request to: {endpoint_url}")
-        
-        with requests.post(endpoint_url, headers=headers, json=payload, stream=True, timeout=30) as response:
-            if response.status_code != 200:
-                error_msg = f"OpenAI-compatible API error {response.status_code}"
-                
-                # Add specific status code descriptions
-                if response.status_code == 404:
-                    error_msg = "Error 404: Model or endpoint not found - Check your server URL and model configuration"
-                elif response.status_code == 401:
-                    error_msg = "Error 401: Authentication failed - Check your API token"
-                elif response.status_code == 403:
-                    error_msg = "Error 403: Access forbidden - Your token may not have permission for this model"
-                elif response.status_code == 429:
-                    error_msg = "Error 429: Rate limited - Too many requests, please wait and try again"
-                elif response.status_code == 502:
-                    error_msg = "Error 502: Server unavailable - The model server is down or overloaded"
-                else:
-                    try:
-                        error_detail = response.json()
-                        if 'error' in error_detail:
-                            if isinstance(error_detail['error'], dict) and 'message' in error_detail['error']:
-                                error_msg += f": {error_detail['error']['message']}"
-                            else:
-                                error_msg += f": {error_detail['error']}"
-                    except:
-                        pass
-                
-                logger.error(error_msg)
-                yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
-                return
-            
-            buffer = ""
-            for chunk in response.iter_content(chunk_size=1024, decode_unicode=False):
-                if not generation_data['active']:
-                    # Generation was cancelled
-                    yield "data: " + json.dumps({"cancelled": True}) + "\n\n"
-                    break
-                
-                if chunk:
-                    buffer += chunk.decode('utf-8', errors='replace')
-                    while True:
-                        # Find the next complete SSE line
-                        line_end = buffer.find('\n')
-                        if line_end == -1:
-                            break
-                        
-                        line = buffer[:line_end].strip()
-                        buffer = buffer[line_end + 1:]
-                        
-                        if line.startswith('data: '):
-                            data_str = line[6:]
-                            if data_str == '[DONE]':
-                                # Don't send done event yet - auto-rename check will handle it
-                                break
-                            
-                            try:
-                                data_obj = json.loads(data_str)
-                                # OpenAI-compatible format: {"choices": [{"text": "..."}]} or {"content": "..."}
-                                content = ""
-                                if "choices" in data_obj and len(data_obj["choices"]) > 0:
-                                    content = data_obj["choices"][0].get("text", "")
-                                else:
-                                    # Some servers might return direct content field
-                                    content = data_obj.get("content", "")
-                                
-                                if content:
-                                    yield "data: " + json.dumps({
-                                        "text": content
-                                    }) + "\n\n"
-                            except json.JSONDecodeError:
-                                pass
-            
-            # Check for auto-rename BEFORE sending done event
-            generation_data = active_generations.get(generation_id)
-            if generation_data and generation_data.get('document_id'):
-                doc_id = generation_data['document_id']
-                document = load_document(doc_id)
-                if document and document.get('name') == 'Untitled' and document.get('content'):
-                    # Auto-rename if document is still named "Untitled" and has content
-                    try:
-                        new_name = generate_document_name(document['content'])
-                        if new_name and new_name != 'Untitled':
-                            success, updated_doc = update_document_metadata(doc_id, new_name)
-                            if success:
-                                yield "data: " + json.dumps({"auto_renamed": True, "new_name": new_name}) + "\n\n"
-                    except Exception as e:
-                        logger.error(f"Error during auto-rename: {e}")
-            
-            if generation_id in active_generations:
-                del active_generations[generation_id]
-            
-            yield "data: " + json.dumps({"done": True}) + "\n\n"
-            
-    except requests.exceptions.Timeout:
-        error_msg = "OpenAI-compatible API timeout - server took too long to respond"
-        logger.error(error_msg)
-        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
-        if generation_id in active_generations:
-            del active_generations[generation_id]
-    except requests.exceptions.ConnectionError as e:
-        error_msg = "OpenAI-compatible API connection error - unable to connect to server"
-        logger.error(f"{error_msg}: {str(e)} (URL: {endpoint_url})")
-        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
-        if generation_id in active_generations:
-            del active_generations[generation_id]
-    except Exception as e:
-        error_msg = f"OpenAI-compatible API error: {str(e)}"
-        logger.error(f"{error_msg} (URL: {endpoint_url})")
-        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
-        if generation_id in active_generations:
-            del active_generations[generation_id]
-
-def chutes_stream_generator(generation_id):
-    """Generator function for Chutes API streaming responses"""
-    generation_data = active_generations[generation_id]
-    prompt = generation_data['prompt']
-    
-    # Hardcoded Chutes API endpoint
-    endpoint_url = 'https://llm.chutes.ai/v1/completions'
-    
-    headers = {
-        'Content-Type': 'application/json'
-    }
-    
-    # Use custom API key if provided, otherwise fall back to main token
-    api_key = config.get('custom_api_key') or config.get('token')
-    if api_key:
-        headers['Authorization'] = f"Bearer {api_key}"
-    
-    # Chutes API payload format (similar to OpenAI but with model as HF name)
-    payload = {
-        'model': config['model'],  # HF model name like "microsoft/DialoGPT-medium"
         'prompt': prompt,
         'temperature': config['temperature'],
         'min_p': config['min_p'],
@@ -676,151 +717,39 @@ def chutes_stream_generator(generation_id):
         'stream': True
     }
     
-    try:
-        logger.info(f"Making Chutes API request to: {endpoint_url}")
-        
-        with requests.post(endpoint_url, headers=headers, json=payload, stream=True, timeout=30) as response:
-            if response.status_code != 200:
-                error_msg = f"Chutes API error {response.status_code}"
-                
-                # Add specific status code descriptions
-                if response.status_code == 404:
-                    error_msg = "Error 404: Model not found - Check your model name for Chutes API"
-                elif response.status_code == 401:
-                    error_msg = "Error 401: Authentication failed - Check your Chutes API token"
-                elif response.status_code == 403:
-                    error_msg = "Error 403: Access forbidden - Your token may not have permission for this model"
-                elif response.status_code == 429:
-                    error_msg = "Error 429: Rate limited - Too many requests, please wait and try again"
-                elif response.status_code == 502:
-                    error_msg = "Error 502: Server unavailable - The Chutes API server is down or overloaded"
-                else:
-                    try:
-                        error_detail = response.json()
-                        if 'error' in error_detail:
-                            if isinstance(error_detail['error'], dict) and 'message' in error_detail['error']:
-                                error_msg += f": {error_detail['error']['message']}"
-                            else:
-                                error_msg += f": {error_detail['error']}"
-                    except:
-                        pass
-                
-                logger.error(error_msg)
-                yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
-                return
-            
-            buffer = ""
-            for chunk in response.iter_content(chunk_size=1024, decode_unicode=False):
-                if not generation_data['active']:
-                    # Generation was cancelled
-                    yield "data: " + json.dumps({"cancelled": True}) + "\n\n"
-                    break
-                
-                if chunk:
-                    buffer += chunk.decode('utf-8', errors='replace')
-                    while True:
-                        # Find the next complete SSE line
-                        line_end = buffer.find('\n')
-                        if line_end == -1:
-                            break
-                        
-                        line = buffer[:line_end].strip()
-                        buffer = buffer[line_end + 1:]
-                        
-                        if line.startswith('data: '):
-                            data_str = line[6:]
-                            if data_str == '[DONE]':
-                                # Don't send done event yet - auto-rename check will handle it
-                                break
-                            
-                            try:
-                                data_obj = json.loads(data_str)
-                                # Chutes API format: {"choices": [{"text": "..."}]} or {"content": "..."}
-                                content = ""
-                                if "choices" in data_obj and len(data_obj["choices"]) > 0:
-                                    content = data_obj["choices"][0].get("text", "")
-                                else:
-                                    # Some servers might return direct content field
-                                    content = data_obj.get("content", "")
-                                
-                                if content:
-                                    yield "data: " + json.dumps({
-                                        "text": content
-                                    }) + "\n\n"
-                            except json.JSONDecodeError:
-                                pass
-            
-            # Check for auto-rename BEFORE sending done event
-            generation_data = active_generations.get(generation_id)
-            if generation_data and generation_data.get('document_id'):
-                doc_id = generation_data['document_id']
-                document = load_document(doc_id)
-                if document and document.get('name') == 'Untitled' and document.get('content'):
-                    # Auto-rename if document is still named "Untitled" and has content
-                    try:
-                        new_name = generate_document_name(document['content'])
-                        if new_name and new_name != 'Untitled':
-                            success, updated_doc = update_document_metadata(doc_id, new_name)
-                            if success:
-                                yield "data: " + json.dumps({"auto_renamed": True, "new_name": new_name}) + "\n\n"
-                    except Exception as e:
-                        logger.error(f"Error during auto-rename: {e}")
-            
-            if generation_id in active_generations:
-                del active_generations[generation_id]
-            
-            yield "data: " + json.dumps({"done": True}) + "\n\n"
-            
-    except requests.exceptions.Timeout:
-        error_msg = "Chutes API timeout - server took too long to respond"
-        logger.error(error_msg)
-        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
-        if generation_id in active_generations:
-            del active_generations[generation_id]
-    except requests.exceptions.ConnectionError as e:
-        error_msg = "Chutes API connection error - unable to connect to server"
-        logger.error(f"{error_msg}: {str(e)} (URL: {endpoint_url})")
-        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
-        if generation_id in active_generations:
-            del active_generations[generation_id]
-    except Exception as e:
-        error_msg = f"Chutes API error: {str(e)}"
-        logger.error(f"{error_msg} (URL: {endpoint_url})")
-        yield "data: " + json.dumps({"error": error_msg}) + "\n\n"
-        if generation_id in active_generations:
-            del active_generations[generation_id]
+    # Use unified streaming handler
+    yield from stream_api_request(endpoint_url, headers, payload, generation_id, 'openai', 'OpenAI-compatible API')
 
-def generate_text(prompt, model_params):
-    """Generate text via OpenRouter API (non-streaming)"""
-    headers = {
-        'Authorization': f"Bearer {model_params['token']}",
-        'Content-Type': 'application/json'
-    }
+def chutes_stream_generator(generation_id):
+    """Generator function for Chutes API streaming responses"""
+    generation_data = active_generations[generation_id]
+    prompt = generation_data['prompt']
     
+    endpoint_url = 'https://llm.chutes.ai/v1/completions'
+    
+    # Build headers
+    headers = {'Content-Type': 'application/json'}
+    api_key = config.get('custom_api_key') or config.get('token')
+    if api_key:
+        headers['Authorization'] = f"Bearer {api_key}"
+    
+    # Build payload
     payload = {
-        'model': model_params['model'],
+        'model': config['model'],
         'prompt': prompt,
-        'temperature': model_params['temperature'],
-        'min_p': model_params['min_p'],
-        'presence_penalty': model_params['presence_penalty'],
-        'repetition_penalty': model_params['repetition_penalty'],
-        'max_tokens': model_params['max_tokens'],
-        'stream': False
+        'temperature': config['temperature'],
+        'min_p': config['min_p'],
+        'presence_penalty': config['presence_penalty'],
+        'repetition_penalty': config['repetition_penalty'],
+        'max_tokens': config['max_tokens'],
+        'stream': True
     }
     
-    try:
-        response = requests.post(model_params['endpoint'], headers=headers, json=payload)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logger.error(f"API error: {response.status_code}")
-            return None
-    except Exception as e:
-        logger.error(f"Error generating text: {e}")
-        return None
+    # Use unified streaming handler
+    yield from stream_api_request(endpoint_url, headers, payload, generation_id, 'openai', 'Chutes API')
 
 def generate_document_name(content):
-    """Generate a 2-4 word document name based on content using AI"""
+    """Generate a 2-4 word document name based on content"""
     # Truncate content to reasonable length for naming
     max_chars = 2000  # Approximately 500-750 tokens
     if len(content) > max_chars:
@@ -846,7 +775,7 @@ Document name:"""
         }
         
         payload = {
-            'model': 'moonshotai/kimi-k2:free',  # Use specified model for renaming
+            'model': 'moonshotai/kimi-k2',  # Use specified model for renaming
             'prompt': prompt,
             'temperature': 0.3,  # Lower temperature for more focused responses
             'max_tokens': 10,    # Shorter to avoid long responses
@@ -873,10 +802,9 @@ Document name:"""
         return "Untitled"
 
 def stream_generator(generation_id):
-    """Generator function for streaming API responses"""
+    """Generator function for OpenRouter streaming API responses"""
     generation_data = active_generations[generation_id]
     prompt = generation_data['prompt']
-    
     
     headers = {
         'Authorization': f"Bearer {config['token']}",
@@ -891,10 +819,10 @@ def stream_generator(generation_id):
     
     # Check if using Anthropic model for special handling
     use_anthropic_trick = 'anthropic' in model_str.lower()
+    response_format = 'chat' if use_anthropic_trick else 'openai'
     
-    # Primary model configuration
+    # Build endpoint and payload
     if use_anthropic_trick:
-        # Use chat completions endpoint with untitled.txt trick for Anthropic
         endpoint_url = 'https://openrouter.ai/api/v1/chat/completions'
         payload = {
             'model': model_str,
@@ -902,19 +830,12 @@ def stream_generator(generation_id):
             'temperature': config['temperature'],
             'system': "The assistant is in CLI simulation mode, and responds to the user's CLI commands only with the output of the command.",
             'messages': [
-                {
-                    'role': 'user',
-                    'content': f"<cmd>cat untitled.txt</cmd> (5.8 KB)"
-                },
-                {
-                    'role': 'assistant',
-                    'content': prompt
-                }
+                {'role': 'user', 'content': f"<cmd>cat untitled.txt</cmd> (5.8 KB)"},
+                {'role': 'assistant', 'content': prompt}
             ],
             'stream': True
         }
     else:
-        # Standard completions endpoint
         endpoint_url = config['endpoint']
         payload = {
             'model': model_str,
@@ -929,101 +850,10 @@ def stream_generator(generation_id):
     
     # Add provider targeting if specified
     if target_provider:
-        payload['provider'] = {
-            'order': [target_provider],
-            'allow_fallbacks': False
-        }
+        payload['provider'] = {'order': [target_provider], 'allow_fallbacks': False}
     
-    try:
-        with requests.post(endpoint_url, headers=headers, json=payload, stream=True) as response:
-            # Check for errors
-            if response.status_code == 404:
-                yield "data: " + json.dumps({"error": "Error 404: Model not found - Check your model name in settings"}) + "\n\n"
-                return
-            elif response.status_code == 401:
-                yield "data: " + json.dumps({"error": "Error 401: Invalid API token - Please check your OpenRouter token"}) + "\n\n"
-                return
-            elif response.status_code == 402:
-                yield "data: " + json.dumps({"error": "Error 402: Insufficient credits - Add more credits to your OpenRouter account"}) + "\n\n"
-                return
-            elif response.status_code == 403:
-                yield "data: " + json.dumps({"error": "Error 403: Content blocked - Your prompt was flagged by content moderation"}) + "\n\n"
-                return
-            elif response.status_code == 429:
-                yield "data: " + json.dumps({"error": "Error 429: Rate limited - Please wait a moment and try again"}) + "\n\n"
-                return
-            elif response.status_code != 200:
-                yield "data: " + json.dumps({"error": f"API error: {response.status_code}"}) + "\n\n"
-                return
-            
-            buffer = ""
-            for chunk in response.iter_content(chunk_size=1024, decode_unicode=False):
-                if not generation_data['active']:
-                    # Generation was cancelled
-                    yield "data: " + json.dumps({"cancelled": True}) + "\n\n"
-                    break
-                
-                if chunk:
-                    buffer += chunk.decode('utf-8', errors='replace')
-                    while True:
-                        # Find the next complete SSE line
-                        line_end = buffer.find('\n')
-                        if line_end == -1:
-                            break
-                        
-                        line = buffer[:line_end].strip()
-                        buffer = buffer[line_end + 1:]
-                        
-                        if line.startswith('data: '):
-                            data_str = line[6:]
-                            if data_str == '[DONE]':
-                                # Don't send done event yet - auto-rename check will handle it
-                                break
-                            
-                            try:
-                                data_obj = json.loads(data_str)
-                                # Handle both completions and chat completions formats
-                                if use_anthropic_trick:
-                                    # Chat completions format: choices[0].delta.content
-                                    delta = data_obj.get("choices", [{}])[0].get("delta", {})
-                                    content = delta.get("content", "")
-                                else:
-                                    # Standard completions format: choices[0].text
-                                    content = data_obj.get("choices", [{}])[0].get("text", "")
-                                
-                                if content:
-                                    yield "data: " + json.dumps({
-                                        "text": content
-                                    }) + "\n\n"
-                            except json.JSONDecodeError:
-                                pass
-            
-            # Check for auto-rename BEFORE sending done event
-            generation_data = active_generations.get(generation_id)
-            if generation_data and generation_data.get('document_id'):
-                doc_id = generation_data['document_id']
-                document = load_document(doc_id)
-                if document and document.get('name') == 'Untitled' and document.get('content'):
-                    # Auto-rename if document is still named "Untitled" and has content
-                    try:
-                        new_name = generate_document_name(document['content'])
-                        if new_name and new_name != 'Untitled':
-                            success, updated_doc = update_document_metadata(doc_id, new_name)
-                            if success:
-                                yield "data: " + json.dumps({"auto_renamed": True, "new_name": new_name}) + "\n\n"
-                    except Exception as e:
-                        logger.error(f"Error during auto-rename: {e}")
-            
-            # Clean up and send done event
-            if generation_id in active_generations:
-                del active_generations[generation_id]
-            
-            yield "data: " + json.dumps({"done": True}) + "\n\n"
-    except Exception as e:
-        logger.error(f"Error in stream generation: {e}")
-        yield "data: " + json.dumps({"error": str(e)}) + "\n\n"
-        if generation_id in active_generations:
-            del active_generations[generation_id]
+    # Use unified streaming handler
+    yield from stream_api_request(endpoint_url, headers, payload, generation_id, response_format, 'OpenRouter API')
 
 # ============================
 # Routes
@@ -1034,6 +864,15 @@ def index():
     """Render the main application page"""
     token_set = bool(config['token'])
     logger.info(f"Token set status: {token_set}")
+    return render_template('index.html', token_set=token_set, config=config)
+
+@app.route('/view/<doc_id>')
+def view_document(doc_id):
+    """Render a single document view (for middle-click/new tab)"""
+    # Set this document as current
+    if doc_id in config['documents']:
+        config['current_document'] = doc_id
+    token_set = bool(config['token'])
     return render_template('index.html', token_set=token_set, config=config)
 
 @app.route('/set_token', methods=['POST'])
@@ -1069,7 +908,8 @@ def settings():
         config['custom_api_key'] = request.form.get('custom_api_key', config.get('custom_api_key', ''))
         config['openai_endpoint'] = request.form.get('openai_endpoint', config.get('openai_endpoint', 'http://localhost:8080/v1'))
         config['embeddings_search'] = request.form.get('embeddings_search') == 'on'
-        save_config(config)
+        # Debounce config write (1s delay)
+        schedule_settings_write()
         return jsonify({'success': True})
     
     return render_template('settings.html', config=config)
@@ -1216,7 +1056,7 @@ def set_current_document(doc_id):
     """Set the currently active document"""
     if doc_id in config['documents']:
         config['current_document'] = doc_id
-        save_config(config)
+        # Don't save config just for switching documents
         return jsonify({'success': True})
     
     return jsonify({
@@ -1368,7 +1208,17 @@ import atexit
 
 @atexit.register
 def cleanup():
-    """Ensure all documents are written to disk on shutdown"""
-    if write_timer:
-        write_timer.cancel()
-    write_documents_to_disk()
+    """Save currently open document on shutdown"""
+    global settings_write_timer
+    # Cancel pending timers
+    for timer in document_write_timers.values():
+        if timer:
+            timer.cancel()
+    if settings_write_timer:
+        settings_write_timer.cancel()
+    
+    # Only save the currently open document
+    current_doc = config.get('current_document')
+    if current_doc and current_doc in documents_cache:
+        write_document_to_disk(current_doc)
+        logger.info(f"Saved current document {current_doc} on shutdown")

@@ -7,10 +7,13 @@ let currentGenerationId = null;
 let lastContent = '';
 let isMobile = window.innerWidth <= 1000;
 let lastCheckpoint = null;  // Store the content checkpoint before generation
-let lastEditFromAPI = false;  // Track if the last edit was from API generation
 let errorToast = null;  // Store the toast instance
 let autosaveToast = null;  // Store the autosave toast instance
 let autorenameToast = null;  // Store the autorename toast instance
+let settingsDirty = false;  // Track if settings have changed since last save
+let suppressInputHandler = false;  // Prevent input handler during programmatic changes
+let pendingDocumentLoad = null;  // Track which document is being loaded (prevent race conditions)
+let documentContentCache = new Map();  // Cache document contents for instant switching
 
 // Cache DOM elements
 const domElements = {
@@ -74,32 +77,27 @@ function initEditor() {
     editorWrapper.appendChild(textarea);
     editor = textarea;
     
-    // Track content changes and auto-save with performance optimization for large documents
+    // Track content changes and auto-save after 2s of no typing (backend handles 30s max)
     editor.addEventListener('input', function() {
-        if (!currentDocument) return;
+        if (!currentDocument || suppressInputHandler) return;
         
         const currentContent = editor.value;
         if (currentContent === lastContent) return;
         
-        // Mark that this edit was from user input
-        lastEditFromAPI = false;
-        lastCheckpoint = null;  // Clear the checkpoint when user makes changes
+        // Clear the checkpoint when user makes changes
+        lastCheckpoint = null;
         
         // Update lastContent immediately to prevent duplicate saves
         lastContent = currentContent;
         
-        // Use longer debounce for large documents to improve performance
-        const contentLength = currentContent.length;
-        const debounceTime = contentLength > 50000 ? 1500 : contentLength > 20000 ? 1000 : 500;
-        
-        // Cancel previous save timer and schedule new one
+        // Cancel previous save timer and schedule new one (2s delay)
         if (window.saveTimer) {
             clearTimeout(window.saveTimer);
         }
         window.saveTimer = setTimeout(() => {
             saveCurrentDocument();
             window.saveTimer = null;
-        }, debounceTime);
+        }, 2000);  // 2s delay, backend handles 30s max during continuous typing
     });
     
     // Add keyboard shortcuts
@@ -152,6 +150,9 @@ function saveCurrentDocument() {
     // Update local state immediately
     currentDocument.content = content;
     currentDocument.updated_at = new Date().toISOString();
+    
+    // Update cache
+    documentContentCache.set(currentDocument.id, currentDocument);
     
     // Silent save to server
     fetch(`/documents/${currentDocument.id}`, {
@@ -267,6 +268,9 @@ function loadDocuments() {
                 showEmptyState();
                 return;
             }
+            
+            // Preload first 50 documents for instant switching
+            preloadDocuments(data.documents.slice(0, 50));
 
             // If we have documents but no current document is selected, load the first one
             if (!data.current_document && data.documents.length > 0) {
@@ -285,6 +289,38 @@ function loadDocuments() {
             console.error('Error fetching documents:', error);
             showEmptyState();
         });
+}
+
+/**
+ * Preload documents into cache for instant switching (async, non-blocking)
+ */
+async function preloadDocuments(documents) {
+    // Filter out already cached docs
+    const docsToPreload = documents.filter(doc => !documentContentCache.has(doc.id));
+    
+    // Preload in small batches to avoid overwhelming the server
+    const batchSize = 5;
+    for (let i = 0; i < docsToPreload.length; i += batchSize) {
+        const batch = docsToPreload.slice(i, i + batchSize);
+        
+        // Process batch in parallel
+        await Promise.all(batch.map(async (doc) => {
+            try {
+                const response = await fetch(`/documents/${doc.id}`);
+                const data = await response.json();
+                if (data.success) {
+                    documentContentCache.set(doc.id, data.document);
+                }
+            } catch (error) {
+                console.error(`Error preloading document ${doc.id}:`, error);
+            }
+        }));
+        
+        // Small delay between batches to be nice to the server
+        if (i + batchSize < docsToPreload.length) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+    }
 }
 
 // Cache for search results to avoid redundant API calls
@@ -459,29 +495,31 @@ function createDocumentElement(doc, currentDocId, searchInfo) {
     const timeOrMetric = getTimeOrMetric(doc, searchInfo);
     
     li.innerHTML = `
-        <div class="document-name">${doc.name}</div>
-        <div class="d-flex align-items-center">
+        <a href="/view/${doc.id}" class="document-link">
+            <div class="document-name">${doc.name}</div>
             <span class="document-time">${timeOrMetric}</span>
-            <div class="document-actions dropdown ms-2" data-id="${doc.id}" data-name="${doc.name}">
-                <i class="bi bi-three-dots" data-bs-toggle="dropdown"></i>
-                <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item download-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Download as .txt</a></li>
-                    <li><a class="dropdown-item rename-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Rename</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item delete-doc text-danger" href="#" data-id="${doc.id}" data-name="${doc.name}">Delete</a></li>
-                </ul>
-            </div>
+        </a>
+        <div class="document-actions dropdown ms-2" data-id="${doc.id}" data-name="${doc.name}">
+            <i class="bi bi-three-dots" data-bs-toggle="dropdown"></i>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item download-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Download as .txt</a></li>
+                <li><a class="dropdown-item rename-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Rename</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item delete-doc text-danger" href="#" data-id="${doc.id}" data-name="${doc.name}">Delete</a></li>
+            </ul>
         </div>
     `;
     
-    // Add click handler
-    li.addEventListener('click', function(e) {
-        // Don't handle the click if it was on or inside the actions menu
-        if (e.target.closest('.document-actions') || e.target.closest('.dropdown-menu')) {
-            e.stopPropagation();
-            return;
+    // Handle link clicks - prevent default for left-click, allow middle/ctrl-click to open new tab
+    const link = li.querySelector('.document-link');
+    link.addEventListener('click', function(e) {
+        // Allow middle-click (button 1) and ctrl/cmd-click to open in new tab naturally
+        if (e.button === 1 || e.ctrlKey || e.metaKey) {
+            return; // Let the browser handle it
         }
         
+        // For normal left-click, prevent default and load via AJAX
+        e.preventDefault();
         loadDocument(doc.id);
     });
     
@@ -535,37 +573,52 @@ function attachDocumentEventListeners() {
  * @param {String} docId - Document ID to load
  */
 function loadDocument(docId) {
-    // Update UI immediately for better responsiveness
+    // Mark this as the pending load to prevent race conditions
+    pendingDocumentLoad = docId;
+    
+    // Get document name from sidebar for immediate feedback
+    const docElement = document.querySelector(`.document-item[data-id="${docId}"]`);
+    const docName = docElement ? docElement.querySelector('.document-name')?.textContent : 'Loading...';
+    
+    // Update UI immediately for instant feedback
     hideEmptyState();
     highlightActiveDocument(docId);
+    updateCurrentDocumentName(docName);
     
-    // Set current document on server asynchronously
+    // Check cache first for instant loading
+    if (documentContentCache.has(docId)) {
+        const cachedDoc = documentContentCache.get(docId);
+        applyDocumentToEditor(docId, cachedDoc);
+        
+        // Still fetch in background to get any updates
+        fetchAndCacheDocument(docId, true);
+    } else {
+        // Not cached, fetch it
+        fetchAndCacheDocument(docId, false);
+    }
+    
+    // Set current document on server asynchronously (don't wait)
     fetch(`/documents/${docId}/set-current`, {
         method: 'POST'
     }).catch(error => {
         console.error('Error setting current document:', error);
     });
-    
-    // Load document content asynchronously
+}
+
+/**
+ * Fetch document and update cache
+ */
+function fetchAndCacheDocument(docId, isBackgroundUpdate) {
     fetch(`/documents/${docId}`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                currentDocument = data.document;
+                // Cache the document
+                documentContentCache.set(docId, data.document);
                 
-                // Update document name
-                updateCurrentDocumentName(currentDocument.name);
-                
-                // Initialize or update editor with document content
-                if (!editor) {
-                    initEditor();
-                }
-                
-                // Set editor content and update lastContent
-                const content = currentDocument.content || '';
-                if (editor.value !== content) {
-                    editor.value = content;
-                    lastContent = content;
+                // Only apply if this is still the document we want to load (race condition check)
+                if (pendingDocumentLoad === docId && !isBackgroundUpdate) {
+                    applyDocumentToEditor(docId, data.document);
                 }
             } else {
                 console.error('Error loading document:', data.error);
@@ -574,6 +627,35 @@ function loadDocument(docId) {
         .catch(error => {
             console.error('Error fetching document:', error);
         });
+}
+
+/**
+ * Apply document content to editor (race-condition safe)
+ */
+function applyDocumentToEditor(docId, document) {
+    // Final race condition check
+    if (pendingDocumentLoad !== docId) {
+        return; // User switched to different document, ignore this
+    }
+    
+    currentDocument = document;
+    
+    // Update document name
+    updateCurrentDocumentName(currentDocument.name);
+    
+    // Initialize or update editor with document content
+    if (!editor) {
+        initEditor();
+    }
+    
+    // Set editor content and update lastContent
+    const content = currentDocument.content || '';
+    if (editor.value !== content) {
+        suppressInputHandler = true;
+        editor.value = content;
+        lastContent = content;
+        suppressInputHandler = false;
+    }
 }
 
 /**
@@ -622,6 +704,13 @@ function renameDocument(docId, newName) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            // Update cache
+            if (documentContentCache.has(docId)) {
+                const cachedDoc = documentContentCache.get(docId);
+                cachedDoc.name = newName;
+                documentContentCache.set(docId, cachedDoc);
+            }
+            
             // Update UI if the renamed document is the current one
             if (currentDocument && currentDocument.id === docId) {
                 currentDocument.name = newName;
@@ -684,6 +773,9 @@ function downloadDocument(docId, docName) {
 function deleteDocument(docId) {
     // Check if we're deleting the current document
     const isDeletingCurrentDoc = currentDocument && currentDocument.id === docId;
+    
+    // Remove from cache
+    documentContentCache.delete(docId);
     
     fetch(`/documents/${docId}`, {
         method: 'DELETE'
@@ -773,18 +865,9 @@ function startStreaming(generationId) {
                 }
             }
             
-            // Mark that this edit was from API
-            lastEditFromAPI = true;
-            
-            // Update lastContent and save (debounced for large docs)
+            // Update lastContent to prevent input handler from triggering
+            // Backend will save immediately after generation completes
             lastContent = originalText + generatedText;
-            if (window.saveTimer) {
-                clearTimeout(window.saveTimer);
-            }
-            window.saveTimer = setTimeout(() => {
-                saveCurrentDocument();
-                window.saveTimer = null;
-            }, editor.value.length > 50000 ? 1000 : 200);
         }
         
         // Handle auto-rename event
@@ -847,6 +930,9 @@ function startStreaming(generationId) {
                 window.streamUpdateBatch = null;
             }
             
+            // Save final content to backend before backend writes to disk
+            saveCurrentDocument();
+            
             eventSource.close();
             currentGenerationId = null;
             
@@ -862,6 +948,12 @@ function startStreaming(generationId) {
         // Handle error in generation
         if (data.error) {
             console.error('Error in generation:', data.error);
+            
+            // Save any partial content before closing
+            if (editor.value !== lastCheckpoint) {
+                saveCurrentDocument();
+            }
+            
             eventSource.close();
             currentGenerationId = null;
             
@@ -876,6 +968,9 @@ function startStreaming(generationId) {
         
         // Handle cancellation
         if (data.cancelled) {
+            // Save partial content before backend writes to disk
+            saveCurrentDocument();
+            
             eventSource.close();
             currentGenerationId = null;
             
@@ -888,6 +983,12 @@ function startStreaming(generationId) {
     
     eventSource.onerror = function(error) {
         console.error('Error in text generation stream:', error);
+        
+        // Save any partial content before closing
+        if (editor.value !== lastCheckpoint) {
+            saveCurrentDocument();
+        }
+        
         eventSource.close();
         currentGenerationId = null;
         
@@ -1088,7 +1189,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Auto-save settings function
-    function autoSaveSettings() {
+    function autoSaveSettings(force = false) {
+        // Skip if settings haven't changed (unless forced)
+        if (!force && !settingsDirty) {
+            return;
+        }
+        
         const formData = new FormData(domElements.settingsFormInline);
         
         // Get the current detection to handle API keys correctly
@@ -1187,7 +1293,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     embeddings_search: formData.get('embeddings_search') === 'on'
                 });
                 
-                // Silent auto-save (no toast)
+                // Mark settings as clean after save
+                settingsDirty = false;
             }
         })
         .catch(error => {
@@ -1232,8 +1339,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Auto-save for all form inputs
-    domElements.settingsFormInline.addEventListener('input', debouncedAutoSave);
-    domElements.settingsFormInline.addEventListener('change', debouncedAutoSave);
+    domElements.settingsFormInline.addEventListener('input', function() {
+        settingsDirty = true;
+        debouncedAutoSave();
+    });
+    domElements.settingsFormInline.addEventListener('change', function() {
+        settingsDirty = true;
+        debouncedAutoSave();
+    });
     
     // Model/Endpoint input change handler - this is the main smart input
     const modelEndpointInput = document.getElementById('model-endpoint');
@@ -1468,10 +1581,12 @@ document.addEventListener('DOMContentLoaded', function() {
     domElements.rerollBtn.addEventListener('click', function() {
         if (!lastCheckpoint) return;
         
-        // Immediately restore content for better responsiveness
+        // Restore editor to checkpoint and save (removes generated text)
+        suppressInputHandler = true;
         editor.value = lastCheckpoint;
         lastContent = lastCheckpoint;
-        saveCurrentDocument();
+        suppressInputHandler = false;
+        saveCurrentDocument(); // Must save to sync reverted state to backend
         
         // If there's an active generation, cancel it asynchronously
         if (currentGenerationId) {
