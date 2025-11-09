@@ -667,7 +667,7 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
     try:
         logger.info(f"Making {api_name} request to: {endpoint_url}")
         
-        with requests.post(endpoint_url, headers=headers, json=payload, stream=True, timeout=30) as response:
+        with requests.post(endpoint_url, headers=headers, json=payload, stream=True, timeout=(5, 30)) as response:
             # Handle HTTP errors
             if response.status_code != 200:
                 error_msg = get_http_error_message(response.status_code, api_name)
@@ -962,9 +962,7 @@ def stream_generator(generation_id):
 @app.route('/')
 def index():
     """Render the main application page"""
-    token_set = bool(config['token'])
-    logger.info(f"Token set status: {token_set}")
-    return render_template('index.html', token_set=token_set, config=config)
+    return render_template('index.html', config=config)
 
 @app.route('/view/<doc_id>')
 def view_document(doc_id):
@@ -972,8 +970,7 @@ def view_document(doc_id):
     # Set this document as current
     if doc_id in config['documents']:
         config['current_document'] = doc_id
-    token_set = bool(config['token'])
-    return render_template('index.html', token_set=token_set, config=config)
+    return render_template('index.html', config=config)
 
 @app.route('/set_token', methods=['POST'])
 def set_token():
@@ -1229,7 +1226,8 @@ def submit():
     prompt = request.form.get('prompt', '')
     doc_id = request.form.get('document_id')
     
-    if not config['token']:
+    # Only require token for OpenRouter, not for OpenAI-compatible endpoints
+    if config.get('provider') == 'openrouter' and not config['token']:
         return jsonify({'success': False, 'error': 'No token provided'})
     
     # If prompt is empty, use seed prompt

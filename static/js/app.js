@@ -208,18 +208,14 @@ function handleTokenSubmit(e) {
     .then(data => {
         console.log('Token response data:', data);
         if (data.success) {
-            // Hide the warning alert with animation
-            const warningAlert = document.querySelector('.warning-alert');
-            if (warningAlert) {
-                warningAlert.classList.add('hidden');
-                // Remove the alert from DOM after animation
-                setTimeout(() => {
-                    warningAlert.remove();
-                }, 300);
+            // Update config token
+            if (window.config) {
+                window.config.token = token;
             }
             
-            // Enable the submit button
-            domElements.submitBtn.disabled = false;
+            // Update submit button state (will enable if needed)
+            const currentProvider = window.config?.provider || 'openrouter';
+            updateSubmitButtonState(currentProvider);
             
             // Close the modal
             const modal = bootstrap.Modal.getInstance(document.getElementById('tokenModal'));
@@ -903,6 +899,32 @@ async function deleteEmptyUntitledDocuments() {
 }
 
 // ============================
+// Button State Management
+// ============================
+
+/**
+ * Update submit button state based on provider and token
+ * @param {String} provider - Provider type ('openrouter' or 'openai')
+ */
+function updateSubmitButtonState(provider) {
+    const hasToken = window.config && window.config.token;
+    const needsToken = provider === 'openrouter' && !hasToken;
+    
+    // Update submit button
+    domElements.submitBtn.disabled = needsToken;
+    domElements.seedBtn.disabled = needsToken;
+    
+    // Update title attributes for tooltip
+    if (needsToken) {
+        domElements.submitBtn.setAttribute('title', 'Add API key to generate');
+        domElements.seedBtn.setAttribute('title', 'Add API key to generate');
+    } else {
+        domElements.submitBtn.setAttribute('title', 'Generate completion');
+        domElements.seedBtn.setAttribute('title', 'Generate seed text');
+    }
+}
+
+// ============================
 // Text Generation
 // ============================
 
@@ -1043,8 +1065,9 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide cancel button
-            domElements.submitBtn.disabled = false;
+            // Re-enable submit button based on provider state
+            const currentProvider = window.config?.provider || 'openrouter';
+            updateSubmitButtonState(currentProvider);
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
             
@@ -1064,8 +1087,9 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide cancel button
-            domElements.submitBtn.disabled = false;
+            // Re-enable submit button based on provider state
+            const currentProvider = window.config?.provider || 'openrouter';
+            updateSubmitButtonState(currentProvider);
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
             
@@ -1081,8 +1105,9 @@ function startStreaming(generationId) {
             eventSource.close();
             currentGenerationId = null;
             
-            // Enable submit button and hide cancel button
-            domElements.submitBtn.disabled = false;
+            // Re-enable submit button based on provider state
+            const currentProvider = window.config?.provider || 'openrouter';
+            updateSubmitButtonState(currentProvider);
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
         }
@@ -1099,8 +1124,9 @@ function startStreaming(generationId) {
         eventSource.close();
         currentGenerationId = null;
         
-        // Re-enable submit button and hide cancel button
-        domElements.submitBtn.disabled = false;
+        // Re-enable submit button based on provider state
+        const currentProvider = window.config?.provider || 'openrouter';
+        updateSubmitButtonState(currentProvider);
         domElements.submitBtn.style.display = 'block';
         domElements.cancelBtn.style.display = 'none';
         
@@ -1312,6 +1338,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 apiKeySection.style.display = 'none';
             }
         }
+        
+        // Update submit button state based on provider and token
+        updateSubmitButtonState(detection.provider);
     }
     
     function handleModelEndpointChange() {
@@ -1372,13 +1401,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
+                        // Update config token
+                        if (window.config) {
+                            window.config.token = apiKey.trim();
+                        }
+                        
                         // Clear the field after successful save
                         document.getElementById('api_key').value = '';
                         
-                        // Enable the submit button if it was disabled
-                        if (domElements.submitBtn.disabled) {
-                            domElements.submitBtn.disabled = false;
-                        }
+                        // Update submit button state
+                        const currentProvider = window.config?.provider || 'openrouter';
+                        updateSubmitButtonState(currentProvider);
                         
                         // Show success feedback
                         if (!autosaveToast) {
@@ -1512,6 +1545,10 @@ document.addEventListener('DOMContentLoaded', function() {
             if (initialValue) {
                 modelEndpointInput.value = initialValue;
                 handleModelEndpointChange();
+            } else {
+                // Still need to set initial button state even without a model
+                const currentProvider = window.config.provider || 'openrouter';
+                updateSubmitButtonState(currentProvider);
             }
         }
     }
@@ -1626,12 +1663,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 startStreaming(data.generation_id);
             } else {
                 console.error('Error starting generation:', data.error);
-                domElements.submitBtn.disabled = false;
+                // Re-enable based on provider state
+                const currentProvider = window.config?.provider || 'openrouter';
+                updateSubmitButtonState(currentProvider);
+                showError(data.error || 'Failed to start generation');
             }
         })
         .catch(error => {
             console.error('Error starting generation:', error);
-            domElements.submitBtn.disabled = false;
+            // Re-enable based on provider state
+            const currentProvider = window.config?.provider || 'openrouter';
+            updateSubmitButtonState(currentProvider);
+            showError('Failed to connect to server. Please check your connection and try again.');
         });
     });
     
@@ -1773,7 +1816,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 // Reset UI state regardless of server response
                 currentGenerationId = null;
-                domElements.submitBtn.disabled = false;
+                const currentProvider = window.config?.provider || 'openrouter';
+                updateSubmitButtonState(currentProvider);
                 domElements.submitBtn.style.display = 'block';
                 domElements.cancelBtn.style.display = 'none';
             })
@@ -1781,7 +1825,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error('Error cancelling generation:', error);
                 // Reset UI state on error
                 currentGenerationId = null;
-                domElements.submitBtn.disabled = false;
+                const currentProvider = window.config?.provider || 'openrouter';
+                updateSubmitButtonState(currentProvider);
                 domElements.submitBtn.style.display = 'block';
                 domElements.cancelBtn.style.display = 'none';
             });
@@ -1815,7 +1860,8 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Reset UI state immediately
             currentGenerationId = null;
-            domElements.submitBtn.disabled = false;
+            const currentProvider = window.config?.provider || 'openrouter';
+            updateSubmitButtonState(currentProvider);
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
         }
@@ -1948,7 +1994,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             currentGenerationId = null;
-            domElements.submitBtn.disabled = false;
+            const currentProvider = window.config?.provider || 'openrouter';
+            updateSubmitButtonState(currentProvider);
             domElements.submitBtn.style.display = 'block';
             domElements.cancelBtn.style.display = 'none';
         }
@@ -1964,6 +2011,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // Start seed generation - same as clicking complete button
         domElements.submitBtn.click();
     });
+    
+    // Set initial button state after all handlers are set up
+    // This ensures the tooltip shows correctly on page load
+    if (window.config) {
+        const currentProvider = window.config.provider || 'openrouter';
+        updateSubmitButtonState(currentProvider);
+    }
 });
 
 // ============================
@@ -2204,11 +2258,11 @@ function showError(message) {
         const description = getErrorDescription(statusCode);
         displayMessage = `Error ${statusCode}: ${description}`;
     } else if (message.toLowerCase().includes('openai-compatible api connection error')) {
-        displayMessage = "Local Server Connection Error - Cannot connect to your local server. Make sure it's running and the URL is correct.";
+        displayMessage = "Server Connection Error - Cannot connect to the API server. Make sure it's running and the URL is correct.";
     } else if (message.toLowerCase().includes('openai-compatible api timeout')) {
-        displayMessage = "Local Server Timeout - Your server took too long to respond. The model might be too large or the server is overloaded.";
+        displayMessage = "Server Timeout - The API server took too long to respond. The model might be too large or the server is overloaded.";
     } else if (message.toLowerCase().includes('openai-compatible api error')) {
-        displayMessage = "Local Server API Error - The server returned an error. Check the server logs for more details.";
+        displayMessage = "API Server Error - The server returned an error. Check the server logs for more details.";
     } else if (message.toLowerCase().includes('connection error')) {
         displayMessage = "Connection Error - Unable to connect to the API. Check your internet connection and try again.";
     } else if (message.toLowerCase().includes('all models failed')) {

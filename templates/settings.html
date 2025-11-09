@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenRouter Settings</title>
+    
+    <!-- CSS Libraries -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    
+    <!-- Google Fonts -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #f8f9fa;
+        }
+        
+        .container {
+            max-width: 800px;
+            padding: 30px 20px;
+        }
+        
+        .card {
+            border: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+        }
+        
+        .card-header {
+            background-color: #fff;
+            border-bottom: 1px solid #f0f0f0;
+            padding: 20px;
+        }
+        
+        .card-body {
+            padding: 30px;
+        }
+        
+        .form-label {
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .form-range {
+            margin-top: 10px;
+            flex-grow: 1;
+            margin-right: 15px;
+        }
+        
+        .form-text {
+            margin-top: 8px;
+            font-size: 0.875rem;
+        }
+        
+        .value-display {
+            font-size: 14px;
+            font-weight: normal;
+            color: #0d6efd;
+        }
+        
+        .range-with-number {
+            display: flex;
+            align-items: center;
+        }
+        
+        .number-input {
+            width: 80px;
+            text-align: right;
+        }
+        
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 20px;
+            color: #6c757d;
+            text-decoration: none;
+        }
+        
+        .back-link:hover {
+            color: #0d6efd;
+            text-decoration: none;
+        }
+        
+        .back-link i {
+            margin-right: 6px;
+        }
+        
+        .settings-footer {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 30px;
+        }
+        
+        #save-success {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            background-color: #d1e7dd;
+            color: #0f5132;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            z-index: 1050;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">
+            <i class="bi bi-arrow-left"></i> Back to Editor
+        </a>
+        
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">OpenRouter Settings</h3>
+            </div>
+            <div class="card-body">
+                <form id="settings-form">
+                    <div class="mb-4">
+                        <label for="model" class="form-label">Model</label>
+                        <input type="text" class="form-control" id="model" name="model" value="{{ config.model }}" required>
+                        <div class="form-text">
+                            <strong>Examples:</strong> meta-llama/llama-3.1-405b
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="temperature" class="form-label">
+                            Temperature
+                        </label>
+                        <div class="range-with-number">
+                            <input type="range" class="form-range" id="temperature" name="temperature" min="0" max="2" step="0.01" value="{{ config.temperature }}">
+                            <input type="number" class="form-control number-input" id="temperature-number" value="{{ config.temperature }}" min="0" max="2" step="0.01">
+                        </div>
+                        <div class="form-text">Controls randomness (0 = deterministic, 2 = maximum creativity)</div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="min_p" class="form-label">
+                            Min P
+                        </label>
+                        <div class="range-with-number">
+                            <input type="range" class="form-range" id="min_p" name="min_p" min="0" max="1" step="0.01" value="{{ config.min_p }}">
+                            <input type="number" class="form-control number-input" id="min_p-number" value="{{ config.min_p }}" min="0" max="1" step="0.01">
+                        </div>
+                        <div class="form-text">Filters low-probability tokens (0 = no filtering, 1 = strict)</div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="presence_penalty" class="form-label">
+                            Presence Penalty
+                        </label>
+                        <div class="range-with-number">
+                            <input type="range" class="form-range" id="presence_penalty" name="presence_penalty" min="0" max="2" step="0.01" value="{{ config.presence_penalty }}">
+                            <input type="number" class="form-control number-input" id="presence_penalty-number" value="{{ config.presence_penalty }}" min="0" max="2" step="0.01">
+                        </div>
+                        <div class="form-text">Penalizes repeated tokens (0 = no penalty, 2 = high penalty)</div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="repetition_penalty" class="form-label">
+                            Repetition Penalty
+                        </label>
+                        <div class="range-with-number">
+                            <input type="range" class="form-range" id="repetition_penalty" name="repetition_penalty" min="1" max="2" step="0.01" value="{{ config.repetition_penalty }}">
+                            <input type="number" class="form-control number-input" id="repetition_penalty-number" value="{{ config.repetition_penalty }}" min="1" max="2" step="0.01">
+                        </div>
+                        <div class="form-text">Penalizes repeated phrases (1 = no penalty, 2 = high penalty)</div>
+                    </div>
+                    
+                    <div class="settings-footer">
+                        <a href="/" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary" id="save-btn">Save Settings</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div id="save-success">
+        <i class="bi bi-check-circle-fill me-2"></i> Settings saved successfully!
+    </div>
+    
+    <!-- JavaScript Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Settings JavaScript -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const settingsForm = document.getElementById('settings-form');
+            const rangeInputs = document.querySelectorAll('input[type="range"]');
+            const saveSuccess = document.getElementById('save-success');
+            
+            // Update displayed values and keep range/number inputs in sync
+            rangeInputs.forEach(rangeInput => {
+                const numberInput = document.getElementById(`${rangeInput.id}-number`);
+                
+                // Update number input when range changes
+                rangeInput.addEventListener('input', function() {
+                    numberInput.value = this.value;
+                });
+                
+                // Update range when number input changes
+                numberInput.addEventListener('input', function() {
+                    rangeInput.value = this.value;
+                });
+                
+                // Ensure number stays within bounds
+                numberInput.addEventListener('change', function() {
+                    const value = parseFloat(this.value);
+                    const min = parseFloat(this.min);
+                    const max = parseFloat(this.max);
+                    
+                    if (value < min) this.value = min;
+                    if (value > max) this.value = max;
+                    rangeInput.value = this.value;
+                });
+            });
+            
+            // Settings form submission
+            settingsForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(settingsForm);
+                
+                fetch('/settings', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Show success message
+                        saveSuccess.style.display = 'block';
+                        
+                        // Hide after 3 seconds
+                        setTimeout(() => {
+                            saveSuccess.style.display = 'none';
+                        }, 3000);
+                    } else {
+                        alert('Error saving settings: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error saving settings:', error);
+                    alert('Error saving settings: ' + error.message);
+                });
+            });
+        });
+    </script>
+</body>
+</html>

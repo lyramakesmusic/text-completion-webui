@@ -493,7 +493,7 @@
         }
         
         .sidebar-header {
-            padding: 15px;
+            padding: 10px;
             border-bottom: 1px solid var(--border-color);
             display: flex;
             justify-content: space-between;
@@ -1161,21 +1161,13 @@
     </style>
 </head>
 <body>
-    <!-- Token Warning Alert -->
-    {% if not token_set %}
-    <div class="alert alert-warning warning-alert" role="alert">
-        You need to set your OpenRouter API token first!
-        <a href="#" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#tokenModal">Set Token</a>
-    </div>
-    {% endif %}
-    
     <div class="app-container">
         <!-- Left Sidebar (Documents) -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <h5 class="m-0">Documents</h5>
                 <button type="button" class="btn btn-sm btn-primary" id="new-document-btn">
-                    <i class="bi bi-plus"></i> New
+                    <i class="bi bi-plus" style="vertical-align: middle;"></i> New
                 </button>
             </div>
             <div class="sidebar-search">
@@ -1217,7 +1209,7 @@
                         <h4>No Document Selected</h4>
                         <p>Create a new document or select one from the sidebar to get started.</p>
                         <button class="btn btn-primary mt-3" id="empty-new-doc-btn">
-                            <i class="bi bi-plus"></i> New Document
+                            <i class="bi bi-plus" style="vertical-align: middle;"></i> New Document
                         </button>
                     </div>
                 </div>
@@ -1229,12 +1221,12 @@
                         <span class="document-name-display" id="current-document-name"></span>
                     </div>
                     <div class="d-flex">
-                        <button type="button" class="btn" id="seed-btn" {% if not token_set %}disabled{% endif %} title="Generate seed text"><i class="bi bi-leaf"></i></button>
+                        <button type="button" class="btn" id="seed-btn" title="Generate seed text"><i class="bi bi-leaf"></i></button>
                         <button type="button" class="btn" id="duplicate-btn" title="Duplicate document"><i class="bi bi-diagram-2" style="font-size: 1.2rem;"></i></button>
                         <button type="button" class="btn" id="copy-all-btn" title="Copy all text"><i class="bi bi-copy"></i></button>
                         <button type="button" class="btn" id="reroll-btn" title="Reroll completion"><i class="bi bi-arrow-clockwise"></i></button>
                         <button type="button" class="btn btn-danger" id="cancel-btn" style="display: none;" title="Cancel generation">Cancel</button>
-                        <button type="button" class="btn btn-primary" id="submit-btn" {% if not token_set %}disabled{% endif %} title="Generate completion">Complete</button>
+                        <button type="button" class="btn btn-primary" id="submit-btn" title="Generate completion">Complete</button>
                     </div>
                 </div>
             </div>
