@@ -10,6 +10,7 @@ let lastCheckpoint = null;  // Store the content checkpoint before generation
 let errorToast = null;  // Store the toast instance
 let autosaveToast = null;  // Store the autosave toast instance
 let autorenameToast = null;  // Store the autorename toast instance
+let duplicateToast = null;  // Store the duplicate toast instance
 let settingsDirty = false;  // Track if settings have changed since last save
 let suppressInputHandler = false;  // Prevent input handler during programmatic changes
 let pendingDocumentLoad = null;  // Track which document is being loaded (prevent race conditions)
@@ -25,10 +26,13 @@ const domElements = {
     editorContainer: document.getElementById('editor-container'),
     emptyState: document.getElementById('empty-state'),
     currentDocumentName: document.getElementById('current-document-name'),
+    headerDocumentName: document.getElementById('header-document-name'),
     submitBtn: document.getElementById('submit-btn'),
     cancelBtn: document.getElementById('cancel-btn'),
     rerollBtn: document.getElementById('reroll-btn'),
-    clearBtn: document.getElementById('clear-btn'),
+    copyAllBtn: document.getElementById('copy-all-btn'),
+    duplicateBtn: document.getElementById('duplicate-btn'),
+    seedBtn: document.getElementById('seed-btn'),
     newDocumentBtn: document.getElementById('new-document-btn'),
     emptyNewDocBtn: document.getElementById('empty-new-doc-btn'),
     documentNameForm: document.getElementById('document-name-form'),
@@ -45,6 +49,7 @@ const domElements = {
     autosaveToast: document.getElementById('autosave-toast'),
     autorenameToast: document.getElementById('autorename-toast'),
     autorenameToastText: document.getElementById('autorename-toast-text'),
+    duplicateToast: document.getElementById('duplicate-toast'),
     sidebarBackdrop: document.getElementById('sidebar-backdrop')
 };
 
@@ -503,6 +508,7 @@ function createDocumentElement(doc, currentDocId, searchInfo) {
             <i class="bi bi-three-dots" data-bs-toggle="dropdown"></i>
             <ul class="dropdown-menu dropdown-menu-end">
                 <li><a class="dropdown-item download-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Download as .txt</a></li>
+                <li><a class="dropdown-item duplicate-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Duplicate</a></li>
                 <li><a class="dropdown-item rename-doc" href="#" data-id="${doc.id}" data-name="${doc.name}">Rename</a></li>
                 <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item delete-doc text-danger" href="#" data-id="${doc.id}" data-name="${doc.name}">Delete</a></li>
@@ -544,6 +550,16 @@ function attachDocumentEventListeners() {
             const docId = this.dataset.id;
             const docName = this.dataset.name;
             downloadDocument(docId, docName);
+        });
+    });
+
+    document.querySelectorAll('.duplicate-doc').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation(); // Prevent the click from reaching the document item
+            const docId = this.dataset.id;
+            const docName = this.dataset.name;
+            duplicateDocumentFromSidebar(docId, docName);
         });
     });
 
@@ -767,6 +783,49 @@ function downloadDocument(docId, docName) {
 }
 
 /**
+ * Duplicate a document from sidebar (doesn't switch to it)
+ * @param {String} docId - Document ID to duplicate
+ * @param {String} docName - Document name
+ */
+function duplicateDocumentFromSidebar(docId, docName) {
+    fetch(`/documents/${docId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const content = data.document.content || '';
+                const newName = `${docName} (copy)`;
+                
+                fetch('/documents/new', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        'name': newName,
+                        'content': content
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        loadDocuments();
+                    } else {
+                        console.error('Error creating duplicate:', data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error creating duplicate:', error);
+                });
+            } else {
+                console.error('Error fetching document:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching document:', error);
+        });
+}
+
+/**
  * Delete a document
  * @param {String} docId - Document ID to delete
  */
@@ -785,7 +844,9 @@ function deleteDocument(docId) {
         if (data.success) {
             // If we deleted the current document, create a new blank one
             if (isDeletingCurrentDoc) {
-                createNewDocument('Untitled');
+                deleteEmptyUntitledDocuments().then(() => {
+                    createNewDocument('Untitled');
+                });
             } else {
                 // Otherwise just reload the documents list
                 loadDocuments();
@@ -797,6 +858,48 @@ function deleteDocument(docId) {
     .catch(error => {
         console.error('Error deleting document:', error);
     });
+}
+
+/**
+ * Delete all empty "Untitled" documents
+ */
+async function deleteEmptyUntitledDocuments() {
+    try {
+        const response = await fetch('/documents');
+        const data = await response.json();
+        
+        if (!data.success || !data.documents) return;
+        
+        // Find all "Untitled" docs that are empty
+        const emptyUntitled = data.documents.filter(doc => {
+            const cachedDoc = documentContentCache.get(doc.id);
+            const content = cachedDoc ? cachedDoc.content : doc.content;
+            return doc.name === 'Untitled' && (!content || content.trim() === '');
+        });
+        
+        // Fetch and check uncached documents
+        const uncachedDocs = emptyUntitled.filter(doc => !documentContentCache.has(doc.id));
+        for (const doc of uncachedDocs) {
+            const docResponse = await fetch(`/documents/${doc.id}`);
+            const docData = await docResponse.json();
+            if (docData.success) {
+                const content = docData.document.content || '';
+                if (content.trim() !== '') {
+                    // Not empty, remove from deletion list
+                    const idx = emptyUntitled.findIndex(d => d.id === doc.id);
+                    if (idx >= 0) emptyUntitled.splice(idx, 1);
+                }
+            }
+        }
+        
+        // Delete all empty "Untitled" documents
+        await Promise.all(emptyUntitled.map(doc => {
+            documentContentCache.delete(doc.id);
+            return fetch(`/documents/${doc.id}`, { method: 'DELETE' });
+        }));
+    } catch (error) {
+        console.error('Error deleting empty Untitled documents:', error);
+    }
 }
 
 // ============================
@@ -884,6 +987,10 @@ function startStreaming(generationId) {
             const headerNameElement = document.getElementById('current-document-name');
             if (headerNameElement) {
                 headerNameElement.textContent = data.new_name;
+            }
+            const mobileHeaderNameElement = document.getElementById('header-document-name');
+            if (mobileHeaderNameElement) {
+                mobileHeaderNameElement.textContent = data.new_name;
             }
             
             // 2. Update the sidebar document name
@@ -1114,6 +1221,43 @@ document.addEventListener('DOMContentLoaded', function() {
             // Save state
             localStorage.setItem('settingsSidebarState', 'collapsed');
         }
+    });
+    
+    // Document name scroll gradient fade
+    function updateDocumentNameGradient(el) {
+        if (!el) return;
+        const hasOverflow = el.scrollWidth > el.clientWidth;
+        
+        if (!hasOverflow) {
+            el.style.setProperty('--fade-left-opacity', '1');
+            el.style.setProperty('--fade-right-opacity', '1');
+            return;
+        }
+        
+        const scrollLeft = el.scrollLeft;
+        const scrollRight = el.scrollWidth - el.clientWidth - scrollLeft;
+        const fadeDistance = 40;
+        
+        const leftOpacity = 1 - Math.min(scrollLeft / fadeDistance, 1);
+        const rightOpacity = 1 - Math.min(scrollRight / fadeDistance, 1);
+        
+        el.style.setProperty('--fade-left-opacity', leftOpacity);
+        el.style.setProperty('--fade-right-opacity', rightOpacity);
+    }
+    
+    [domElements.currentDocumentName, domElements.headerDocumentName].forEach(el => {
+        if (!el) return;
+        el.addEventListener('scroll', () => updateDocumentNameGradient(el));
+        const observer = new MutationObserver(() => updateDocumentNameGradient(el));
+        observer.observe(el, { childList: true, characterData: true, subtree: true });
+        updateDocumentNameGradient(el);
+    });
+    
+    // Recheck on window resize
+    window.addEventListener('resize', () => {
+        [domElements.currentDocumentName, domElements.headerDocumentName].forEach(el => {
+            if (el) updateDocumentNameGradient(el);
+        });
     });
     
     // Smart model/endpoint detection and parsing
@@ -1491,6 +1635,30 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
+    // Add copy all button handler (mobile only)
+    if (domElements.copyAllBtn) {
+        domElements.copyAllBtn.addEventListener('click', async function() {
+            if (!editor) return;
+            
+            try {
+                // Use Clipboard API for reliable copying of entire content
+                await navigator.clipboard.writeText(editor.value);
+                
+                // Visual feedback
+                const originalHTML = this.innerHTML;
+                this.innerHTML = '<i class="bi bi-check"></i>';
+                setTimeout(() => {
+                    this.innerHTML = originalHTML;
+                }, 1000);
+            } catch (err) {
+                // Fallback: select all and copy
+                editor.select();
+                document.execCommand('copy');
+                console.error('Clipboard API failed, used fallback:', err);
+            }
+        });
+    }
+    
     // Document creation form handling
     domElements.documentNameForm.addEventListener('submit', function(e) {
         e.preventDefault();
@@ -1519,6 +1687,49 @@ document.addEventListener('DOMContentLoaded', function() {
             if (modal) {
                 modal.hide();
             }
+        }
+    });
+    
+    // Autorename button in rename modal
+    document.getElementById('autorename-btn').addEventListener('click', async function() {
+        const docId = document.getElementById('rename-document-id').value;
+        const nameInput = document.getElementById('rename-document-input');
+        
+        if (!docId) return;
+        
+        // Disable button while generating
+        this.disabled = true;
+        const originalText = this.textContent;
+        this.textContent = 'Generating...';
+        
+        try {
+            // Get current document content
+            const docResponse = await fetch(`/documents/${docId}`);
+            const docData = await docResponse.json();
+            
+            if (docData.success && docData.document && docData.document.content) {
+                // Generate name from content
+                const response = await fetch('/generate_name', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        content: docData.document.content
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success && data.name) {
+                    nameInput.value = data.name;
+                    nameInput.select();
+                }
+            }
+        } catch (error) {
+            console.error('Error generating name:', error);
+        } finally {
+            this.disabled = false;
+            this.textContent = originalText;
         }
     });
     
@@ -1612,6 +1823,147 @@ document.addEventListener('DOMContentLoaded', function() {
         // Start a new generation immediately
         domElements.submitBtn.click();
     });
+
+    // Duplicate in new document button handler
+    domElements.duplicateBtn.addEventListener('click', function() {
+        if (!currentDocument || !editor) return;
+        
+        const content = editor.value;
+        const originalName = currentDocument.name;
+        const newName = `${originalName} (copy)`;
+        
+        fetch('/documents/new', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                'name': newName,
+                'content': content
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const newDoc = data.document;
+                
+                // Update current document state immediately (no visual change, just metadata swap)
+                currentDocument = newDoc;
+                lastContent = content;
+                pendingDocumentLoad = newDoc.id;
+                
+                // HERE - show empty doc for 0.1s
+                showEmptyState();
+                setTimeout(() => {
+                    hideEmptyState();
+                }, 100);
+                
+                // Cache the new document
+                documentContentCache.set(newDoc.id, newDoc);
+                
+                // Update document name in UI
+                updateCurrentDocumentName(newDoc.name);
+                
+                // Refresh sidebar list in background and highlight new doc
+                fetch('/documents')
+                    .then(response => response.json())
+                    .then(listData => {
+                        if (listData.success) {
+                            renderDocumentList(listData.documents, newDoc.id);
+                        }
+                    });
+                
+                // Set as current on server
+                fetch(`/documents/${newDoc.id}/set-current`, {
+                    method: 'POST'
+                }).catch(error => console.error('Error setting current document:', error));
+                
+                // Show duplicate toast (always recreate for reliable autohide)
+                if (duplicateToast) {
+                    duplicateToast.dispose();
+                }
+                duplicateToast = new bootstrap.Toast(domElements.duplicateToast, {
+                    animation: true,
+                    autohide: true,
+                    delay: 3000
+                });
+                duplicateToast.show();
+            } else {
+                console.error('Error duplicating document:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error duplicating document:', error);
+        });
+    });
+
+    // Seed button handler - generates starter text
+    domElements.seedBtn.addEventListener('click', async function() {
+        if (!editor || !currentDocument) return;
+        
+        const currentContent = editor.value.trim();
+        if (currentContent.length >= 1000) {
+            if (!confirm('This will replace your entire document. Are you sure?')) {
+                return;
+            }
+        }
+        
+        // Always rename to "Untitled" when using seed button (wait for it to complete)
+        if (currentDocument.name !== 'Untitled') {
+            try {
+                const response = await fetch(`/documents/${currentDocument.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: 'Untitled'
+                    })
+                });
+                const data = await response.json();
+                if (data.success && data.document) {
+                    currentDocument = data.document;
+                    updateDocumentNameDisplay();
+                }
+            } catch (error) {
+                console.error('Error renaming to Untitled:', error);
+            }
+        }
+        
+        // Cancel any active generation first
+        if (currentGenerationId) {
+            fetch('/cancel', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    generation_id: currentGenerationId
+                })
+            });
+            
+            if (window.currentEventSource) {
+                window.currentEventSource.close();
+                window.currentEventSource = null;
+            }
+            
+            currentGenerationId = null;
+            domElements.submitBtn.disabled = false;
+            domElements.submitBtn.style.display = 'block';
+            domElements.cancelBtn.style.display = 'none';
+        }
+        
+        // Clear editor and save checkpoint
+        suppressInputHandler = true;
+        editor.value = '';
+        lastContent = '';
+        lastCheckpoint = '';
+        suppressInputHandler = false;
+        saveCurrentDocument();
+        
+        // Start seed generation - same as clicking complete button
+        domElements.submitBtn.click();
+    });
 });
 
 // ============================
@@ -1655,6 +2007,7 @@ function formatRelativeTime(date) {
  */
 function updateCurrentDocumentName(name) {
     domElements.currentDocumentName.textContent = name;
+    domElements.headerDocumentName.textContent = name;
 }
 
 /**
@@ -1680,6 +2033,7 @@ function showEmptyState() {
     }
     
     domElements.currentDocumentName.textContent = '';
+    domElements.headerDocumentName.textContent = '';
 }
 
 /**

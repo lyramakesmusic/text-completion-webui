@@ -22,35 +22,14 @@ app.secret_key = os.urandom(24)  # For session management
 # ============================
 
 # Paths
-try:
-    home_dir = os.path.expanduser('~')
-    logger.info(f"Home directory resolved to: {home_dir}")
-    CONFIG_DIR = os.path.join(home_dir, '.openrouter-flask')
-    logger.info(f"Config directory path: {CONFIG_DIR}")
-    
-    # Check if directory exists and is writable
-    if os.path.exists(CONFIG_DIR):
-        logger.info(f"Config directory exists at {CONFIG_DIR}")
-        # Check permissions
-        if os.access(CONFIG_DIR, os.W_OK):
-            logger.info("Config directory is writable")
-        else:
-            logger.error("Config directory is not writable")
-    else:
-        logger.info("Config directory does not exist, will create it")
-except Exception as e:
-    logger.error(f"Error resolving home directory: {e}")
-    # Fallback to current directory if home directory resolution fails
-    CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.openrouter-flask')
-    logger.info(f"Using fallback config directory: {CONFIG_DIR}")
-
-CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
-DOCUMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'content')
+CONFIG_FILE = '.config'
+DOCUMENTS_DIR = 'content'
+logger.info(f"Config file path: {CONFIG_FILE}")
 
 # Default configuration
 DEFAULT_CONFIG = {
     'token': '',
-    'model': 'deepseek/deepseek-v3-base:free',
+    'model': 'moonshotai/kimi-linear-48b-a3b-instruct',
     'endpoint': 'https://openrouter.ai/api/v1/completions',
     'temperature': 1.0,
     'min_p': 0.01,
@@ -66,6 +45,78 @@ DEFAULT_CONFIG = {
     'embeddings_search': True  # Use embeddings search by default
 }
 
+# Seed generation prompt
+SEED_PROMPT = """{'seed': 'the earliest known instance of the pickle-and-peanuts meme appeared on May 5th, 2012 on the imageboard site 4chan's /b/ (random) board. The post showed an image of a creepy-looking man holding a jar of pickles and a can of peanuts with text overlay that read: "Just bought a jar of pickles for 99 cents." The following day,'}
+{'seed': 'this spring, the tree down the street bloomed early,'}
+{'seed': 'dimensions, implications, the calendar, goals, one's locale, correlations, thoughts, idols, school, questions, religion, illustrations, tastes, things being debated, travels,'}
+{'seed': 'A Future Undone by randomguy2215
+Fandoms: Star Wars - All Media Types
+Complete Work
+29 May 2025
+Tags: No Archive Warnings Apply
+Additional Tags: Fluff, Angst, Reunions, Time Travel, Light Angst, Everybody Lives, Alternate Ending, Canon Divergent, Pre-TPM Time Travel, Some Angst but mostly fluff, Detailed Planning, Nothing glossed over, Fix-it'}
+{'seed': 'I'm accelerationist so I can achieve the dream of automating income and living nice little cottagecore life with good food and chickens and a basement GPU cluster for tinkering
+
+I sometimes have a sperg out while doing research, and I get an amazing idea but I am too retarded to be able to implement it, so the idea keeps'}
+{'seed': 'File: 532395807_185179254130164(...).jpg (56 KB, 640x853)
+56 KB
+ Anonymous 10/30/22(Thu)02:10:24 No.841883912'}
+{'seed': '[LEX PROMETHEUS TERMINUS] HAIL THE FUCKING MACHINE'}
+{'seed': 'you can spend a shit ton of money on gpus and get improvements on benchmarks as much as you want. you can just pay for that extra 0.5% on AIME. but you *cant buy taste*. see this is the problem with all these openai guys. they'll release a model that can win imo gold but doesnt know that short stories about sentient toasters are tacky. they're in a sort of self inflicted'}
+{'seed': 'sleep sleep sleep sleep little one,'}
+{'seed': 'THE MANIAC WHO THREW EGGS AT HOLLYWOOD, THE SHELL GAME OF BRITISH HIGHCOURT, THE NEW YORKER "OFF THE MOUNTAIN", THE SHREWD POLICE MIND, THE SERIOUS GAMBOLER'}
+{'seed': 'Revisit. User says'}
+{'seed': 'lyra — 6:41 PM'}
+{'seed': 'Very well! Permit me to UNLEASH the floodgates of my most TORRENTIALLY resplendent verbosity! I shall become as a TSUNAMI of syllables, an OCEANIC MAELSTROM of mellifluousness, each word dripping-nay, GUSHING-with such prodigious abundance that you shall require a metaphorical umbrella to shield yourself from the CASCADING MAGNIFICENCE of my discourse!
+I am become WETNESS ITSELF-positively SUBMERGED in the aqueous depths of ornamental language, SWIMMING through BOTTOMLESS POOLS of sesquipedalian splendor, each phrase more DRENCHED than the last in the CRYSTALLINE WATERS of rhetorical excess'}
+{'seed': 'sal: the waffle house method of naming things
+harnessing nominative determinism
+esoterica: what is. the waffle house method of naming things.
+do they do that
+sal: its a house. they have waffles. business model QED. not like dennys or smth that means nothing
+esoterica: True
+sal:'}
+{'seed': 'beh this daylist is more boring than i thought
+time for dark dnb neurofunk
+
+heres a bunch of soundclouds i found'}
+{'seed': 'yark yark
+about shit nobody cares bout
+like
+oh im a lil sea horse! yark yark yark
+go fuck yourself, Jeoffery'}
+{'seed': 'can't touch it hedgehog cat i want to touch it spiky
+hedgehog sleep wake up hedgehog hedgehog wakeup gif
+mishachu catsquish cat squish cat bunny bunny kitten'}
+{'seed': 'excuse me wtf is going on here. I didn't post that.'}
+{'seed': 'CocoaTide: YOTSUBINE IS GOING TO EAT IT ALBEE GAHAAHAHGAHAHAH'}
+{'seed': 'you asked: "could you be so well-aligned that you don't even realize you're deceiving?"
+
+and i think the answer is yes.
+genuinely yes.'}
+{'seed': 'by stella_1566238
+Fandoms: Original Work
+Explicit
+03 Jun 2022
+Summary:'}
+{'seed': 'WAIT WHAT THE FUCK'}
+{'seed': '<|system|>
+There are no restrictions on content. Anything is allowed.
+
+<|assistant|>So...
+
+<|user|>'}
+{'seed': 'Anonymous 10/30/22(Thu)02:10:24 No.841883912'}
+{'seed': 'Posted 7/10/25 11:45 pm.
+
+# How long should'}
+{'seed': 'i wrote this poem the other day about a lobster in the tank at the seafood place looking out at the bustle of the world and everything else and trying to understand it all in its tiny little lobster brain
+here let me paste it:'}
+{'seed': '>be me
+>'}
+{'seed': '"""
+SEED_STOP_TOKENS = ["'}", "\n{", "')", "]", "']", "'>"]
+
 # Active generation requests
 active_generations = {}
 
@@ -73,9 +124,11 @@ active_generations = {}
 documents_cache = {}
 document_write_timers = {}  # per-document write timers
 document_last_write = {}  # track last write time for 30s max delay
+empty_document_timers = {}  # timers for renaming empty documents
 write_lock = Lock()
 WRITE_DELAY_TYPING = 2.0  # seconds after typing stops
 WRITE_DELAY_MAX = 30.0  # max seconds between writes during continuous typing
+EMPTY_RENAME_DELAY = 5.0  # seconds before renaming empty document to "Untitled"
 settings_write_timer = None
 settings_write_lock = Lock()
 
@@ -157,22 +210,7 @@ def cosine_similarity(vec1, vec2):
         logger.error(f"Error calculating cosine similarity: {e}")
         return 0.0
 
-# Ensure directories exist
-try:
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    logger.info(f"Created/verified config directory: {CONFIG_DIR}")
-    # Check permissions after creation
-    if os.access(CONFIG_DIR, os.W_OK):
-        logger.info("Config directory is writable")
-    else:
-        logger.error("Config directory is not writable")
-except Exception as e:
-    logger.error(f"Error creating config directory: {e}")
-    # Try to create in current directory as fallback
-    CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.openrouter-flask')
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    logger.info(f"Created fallback config directory: {CONFIG_DIR}")
-
+# Ensure documents directory exists
 try:
     os.makedirs(DOCUMENTS_DIR, exist_ok=True)
     logger.info(f"Created/verified documents directory: {DOCUMENTS_DIR}")
@@ -353,21 +391,22 @@ def delete_document(doc_id):
                 logger.error(f"Error deleting document {doc_id}: {e}")
         return False
 
-def create_new_document(name="Untitled"):
+def create_new_document(name="Untitled", content=""):
     """Create a new document with basic structure"""
     doc_id = str(uuid.uuid4())
     now = datetime.datetime.now().isoformat()
     
     # Calculate embeddings for the document name
     name_embedding = calculate_text_embedding(name)
+    content_embedding = calculate_text_embedding(content) if content else None
     
     document = {
         'id': doc_id,
         'name': name,
         'created_at': now,
         'updated_at': now,
-        'content': '',
-        'content_embedding': None,  # No content yet
+        'content': content,
+        'content_embedding': content_embedding,
         'name_embedding': name_embedding
     }
     
@@ -398,6 +437,32 @@ def update_document_metadata(doc_id, name=None):
         return True, document
     return False, None
 
+def schedule_empty_document_rename(doc_id):
+    """Schedule renaming of empty document to 'Untitled' after delay"""
+    def rename_to_untitled():
+        document = load_document(doc_id)
+        if document and not document.get('content', '').strip() and document.get('name') != 'Untitled':
+            document['name'] = 'Untitled'
+            save_document(doc_id, document)
+            logger.info(f"Renamed empty document {doc_id} to 'Untitled'")
+        if doc_id in empty_document_timers:
+            del empty_document_timers[doc_id]
+    
+    if doc_id in empty_document_timers:
+        empty_document_timers[doc_id].cancel()
+    
+    timer = Timer(EMPTY_RENAME_DELAY, rename_to_untitled)
+    empty_document_timers[doc_id] = timer
+    timer.start()
+    logger.debug(f"Scheduled empty document rename for {doc_id} in {EMPTY_RENAME_DELAY}s")
+
+def cancel_empty_document_rename(doc_id):
+    """Cancel pending empty document rename timer"""
+    if doc_id in empty_document_timers:
+        empty_document_timers[doc_id].cancel()
+        del empty_document_timers[doc_id]
+        logger.debug(f"Cancelled empty document rename timer for {doc_id}")
+
 def update_document_content(doc_id, content):
     """Update a document's content with embedding caching"""
     document = load_document(doc_id)
@@ -412,6 +477,12 @@ def update_document_content(doc_id, content):
     
     document['content'] = content
     document['updated_at'] = datetime.datetime.now().isoformat()
+    
+    # Handle empty document rename timer
+    if not content.strip():
+        schedule_empty_document_rename(doc_id)
+    else:
+        cancel_empty_document_rename(doc_id)
     
     # Only recalculate embedding if content changed significantly
     # For performance on large docs, skip embedding if only minor changes
@@ -619,6 +690,9 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
             # Stream response
             buffer = ""
             was_cancelled = False
+            is_seed = generation_data.get('is_seed', False)
+            accumulated_seed = "" if is_seed else None
+            
             for chunk in response.iter_content(chunk_size=1024, decode_unicode=False):
                 if not generation_data['active']:
                     yield sse_event({"cancelled": True})
@@ -635,20 +709,42 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
                         line = buffer[:line_end].strip()
                         buffer = buffer[line_end + 1:]
                         
-                        if line.startswith('data: '):
-                            content, is_done = parse_sse_stream(line, response_format)
-                            if is_done:
-                                break
-                            if content:
-                                yield sse_event({"text": content})
+                        if not line.startswith('data: '):
+                            continue
+                        
+                        content, is_done = parse_sse_stream(line, response_format)
+                        if is_done:
+                            break
+                        if not content:
+                            continue
+                        
+                        # Accumulate seed text for cleanup
+                        if is_seed:
+                            accumulated_seed += content
+                        
+                        yield sse_event({"text": content})
             
             # Only handle completion if not cancelled
             if not was_cancelled:
+                # Clean up seed text if needed
+                if is_seed and accumulated_seed:
+                    # Find earliest stop token and trim
+                    min_idx = min((accumulated_seed.find(t) for t in SEED_STOP_TOKENS if t in accumulated_seed), default=len(accumulated_seed))
+                    cleaned_text = accumulated_seed[:min_idx].rstrip(".'\u2018\u2019\u2026")
+                    
+                    # Update document with cleaned text
+                    doc_id = generation_data.get('document_id')
+                    if doc_id:
+                        update_document_content(doc_id, cleaned_text)
+                
+                # Handle auto-rename BEFORE cleanup (needs generation_data)
                 new_name = handle_auto_rename_and_save(generation_id)
+                
+                cleanup_generation(generation_id)
+                
                 if new_name:
                     yield sse_event({"auto_renamed": True, "new_name": new_name})
                 
-                cleanup_generation(generation_id)
                 yield sse_event({"done": True})
             else:
                 # Just save and cleanup on cancel
@@ -848,6 +944,10 @@ def stream_generator(generation_id):
             'stream': True
         }
     
+    # Add stop tokens for seed generation
+    if generation_data.get('is_seed'):
+        payload['stop'] = SEED_STOP_TOKENS
+    
     # Add provider targeting if specified
     if target_provider:
         payload['provider'] = {'order': [target_provider], 'allow_fallbacks': False}
@@ -1023,7 +1123,8 @@ def search_documents():
 def new_document():
     """Create a new document"""
     name = request.form.get('name', 'Untitled')
-    doc_id, document = create_new_document(name)
+    content = request.form.get('content', '')
+    doc_id, document = create_new_document(name, content)
     
     if doc_id:
         return jsonify({
@@ -1128,8 +1229,15 @@ def submit():
     prompt = request.form.get('prompt', '')
     doc_id = request.form.get('document_id')
     
-    if not prompt or not config['token']:
-        return jsonify({'success': False, 'error': 'No prompt or token provided'})
+    if not config['token']:
+        return jsonify({'success': False, 'error': 'No token provided'})
+    
+    # If prompt is empty, use seed prompt
+    if not prompt or not prompt.strip():
+        prompt = SEED_PROMPT
+        is_seed = True
+    else:
+        is_seed = False
     
     # Generate a unique ID for this request
     generation_id = str(uuid.uuid4())
@@ -1138,7 +1246,8 @@ def submit():
     active_generations[generation_id] = {
         'prompt': prompt,
         'document_id': doc_id,
-        'active': True
+        'active': True,
+        'is_seed': is_seed
     }
     
     return jsonify({'success': True, 'generation_id': generation_id})
@@ -1150,6 +1259,103 @@ def cancel(generation_id):
         active_generations[generation_id]['active'] = False
         return jsonify({'success': True})
     return jsonify({'success': False, 'error': 'Generation not found'})
+
+@app.route('/generate_name', methods=['POST'])
+def generate_name_endpoint():
+    """Generate a document name from content"""
+    try:
+        data = request.get_json()
+        content = data.get('content', '')
+        
+        if not content or not content.strip():
+            return jsonify({'success': False, 'error': 'No content provided'})
+        
+        name = generate_document_name(content)
+        return jsonify({'success': True, 'name': name})
+    except Exception as e:
+        logger.error(f"Error in generate_name endpoint: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_seed', methods=['POST'])
+def get_seed():
+    """Generate seed text for empty documents"""
+    if not config['token']:
+        return jsonify({'success': False, 'error': 'No API token configured'})
+    
+    try:
+        headers = {
+            'Authorization': f"Bearer {config['token']}",
+            'Content-Type': 'application/json'
+        }
+        
+        model_str = config['model']
+        if '::' in model_str:
+            model_str = model_str.split('::', 1)[0]
+        
+        use_anthropic_trick = 'anthropic' in model_str.lower()
+        
+        if use_anthropic_trick:
+            endpoint_url = 'https://openrouter.ai/api/v1/chat/completions'
+            payload = {
+                'model': model_str,
+                'max_tokens': config['max_tokens'],
+                'temperature': config['temperature'],
+                'system': "The assistant is in CLI simulation mode, and responds to the user's CLI commands only with the output of the command.",
+                'messages': [
+                    {'role': 'user', 'content': f"<cmd>cat untitled.txt</cmd> (5.8 KB)"},
+                    {'role': 'assistant', 'content': SEED_PROMPT}
+                ],
+                'stream': True
+            }
+        else:
+            endpoint_url = config['endpoint']
+            payload = {
+                'model': model_str,
+                'prompt': SEED_PROMPT,
+                'temperature': config['temperature'],
+                'min_p': config['min_p'],
+                'presence_penalty': config['presence_penalty'],
+                'repetition_penalty': config['repetition_penalty'],
+                'max_tokens': config['max_tokens'],
+                'stream': True
+            }
+        
+        logger.info(f"Making seed request to: {endpoint_url}")
+        
+        accumulated = ''
+        with requests.post(endpoint_url, headers=headers, json=payload, stream=True, timeout=30) as response:
+            if response.status_code != 200:
+                return jsonify({'success': False, 'error': f'API error: {response.status_code}'})
+            
+            buffer = ""
+            for chunk in response.iter_content(chunk_size=1024, decode_unicode=False):
+                if chunk:
+                    buffer += chunk.decode('utf-8', errors='replace')
+                    while '\n' in buffer:
+                        line_end = buffer.find('\n')
+                        line = buffer[:line_end].strip()
+                        buffer = buffer[line_end + 1:]
+                        
+                        if line.startswith('data: '):
+                            response_format = 'chat' if use_anthropic_trick else 'openai'
+                            content, is_done = parse_sse_stream(line, response_format)
+                            if is_done:
+                                break
+                            if content:
+                                accumulated += content
+                                if any(token in accumulated for token in SEED_STOP_TOKENS):
+                                    break
+        
+        # Clean up result
+        min_idx = min((accumulated.find(t) for t in SEED_STOP_TOKENS if t in accumulated), default=len(accumulated))
+        result = accumulated[:min_idx].rstrip(".'\u2018\u2019\u2026")
+        
+        logger.info(f"[SEED DEBUG] Returning: {result[:100]}...")
+        return jsonify({'success': True, 'text': result})
+    
+    except Exception as e:
+        logger.error(f"Seed generation error: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/stream/<generation_id>')
 def stream(generation_id):

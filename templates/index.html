@@ -7,7 +7,7 @@
     
     <!-- CSS Libraries -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.1/codemirror.min.css">
     
     <!-- Google Fonts -->
@@ -165,8 +165,8 @@
             border-radius: 6px;
         }
         
-        /* Round reroll button */
-        #reroll-btn {
+        /* Round icon buttons - shared styles */
+        #reroll-btn, #copy-all-btn, #duplicate-btn, #seed-btn {
             width: 40px;
             height: 40px;
             border-radius: 50%;
@@ -178,6 +178,69 @@
             min-width: 40px;
             max-width: 40px;
             font-size: 16px;
+            margin-left: 5px;
+            background-color: transparent;
+            color: inherit;
+        }
+
+        #reroll-btn:hover, #reroll-btn:active {
+            background-color: rgba(255, 193, 7, 0.3) !important;
+            border-color: rgb(255, 193, 7) !important;
+            color: white !important;
+        }
+
+        #seed-btn:hover, #seed-btn:active, #seed-btn:focus:active {
+            background-color: rgba(53, 220, 69, 0.25) !important;
+            border-color: rgb(53, 220, 69) !important;
+            color: white !important;
+            box-shadow: none !important;
+        }
+
+        #duplicate-btn:hover, #duplicate-btn:active {
+            background-color: rgba(220, 53, 69, 0.3) !important;
+            border-color: rgb(220, 53, 69) !important;
+            color: white !important;
+        }
+
+        #copy-all-btn:hover, #copy-all-btn:active {
+            background-color: rgba(128, 100, 162, 0.4) !important;
+            border-color: rgb(128, 100, 162) !important;
+            color: white !important;
+        }
+
+        #submit-btn, #cancel-btn {
+            margin-left: 10px;
+        }
+
+        /* Document name display truncation */
+        .document-name-display {
+            overflow-x: auto;
+            white-space: nowrap;
+            display: inline-block;
+            max-width: 100%;
+            --fade-left-opacity: 0;
+            --fade-right-opacity: 0;
+            -webkit-mask-image: linear-gradient(
+                to right,
+                rgba(0, 0, 0, var(--fade-left-opacity)),
+                black 40px,
+                black calc(100% - 40px),
+                rgba(0, 0, 0, var(--fade-right-opacity))
+            );
+            mask-image: linear-gradient(
+                to right,
+                rgba(0, 0, 0, var(--fade-left-opacity)),
+                black 40px,
+                black calc(100% - 40px),
+                rgba(0, 0, 0, var(--fade-right-opacity))
+            );
+        }
+        
+        /* Constrain parent div of document name */
+        .button-row .d-flex > div:first-child {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
         }
         
         /* New document buttons with thin outline */
@@ -562,11 +625,13 @@
         .header-left {
             display: flex;
             align-items: center;
+            width: 49px;
         }
         
         .header-right {
             display: flex;
             align-items: center;
+            width: 49px;
         }
         
         .app-title {
@@ -575,15 +640,28 @@
             font-size: 18px;
         }
         
+        .header-center {
+            display: none;
+            flex: 1;
+            min-width: 0;
+            margin: 0 15px;
+        }
+        
+        .header-center .document-name-display {
+            max-width: 100%;
+        }
+        
         .toggle-sidebar {
             width: 40px;
             height: 40px;
             min-width: 40px;
+            font-size: 20px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            background-color: var(--bg-primary);
+            /* background-color: var(--bg-primary); */
+            background-color: transparent;
             border: none;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -903,7 +981,8 @@
                 position: fixed;
                 top: 0;
                 left: 0;
-                bottom: 0;
+                height: 100dvh;
+                height: 100svh;
                 width: 300px;
                 transform: translateX(-100%);
                 z-index: 1050;
@@ -916,7 +995,8 @@
                 top: 0;
                 left: auto;
                 right: 0;
-                bottom: 0;
+                height: 100dvh;
+                height: 100svh;
                 width: 300px;
                 transform: translateX(100%);
                 z-index: 1050;
@@ -943,6 +1023,14 @@
                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
                 height: 60px;
             }
+            
+            .header-center {
+                display: flex;
+            }
+            
+            .button-row .document-name-display {
+                display: none;
+            }
 
             .main-content {
                 padding-top: 60px;
@@ -961,10 +1049,11 @@
                 overflow: hidden; /* Prevent container scroll */
                 display: flex;
                 flex-direction: column;
+                align-items: center;
             }
 
             .editor-wrapper {
-                max-width: 100%;
+                max-width: 820px;
                 padding: 10px;
                 flex: 1; /* Take all remaining space */
                 display: flex;
@@ -993,13 +1082,27 @@
             .button-row {
                 position: fixed;
                 bottom: 0;
-                left: 0;
-                right: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 100%;
+                max-width: 800px;
                 height: 60px;
                 z-index: 1040;
                 background-color: var(--bg-secondary);
                 box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
                 padding: 10px 15px;
+            }
+
+            
+            /* #reroll-btn, #copy-all-btn, #duplicate-btn {
+                width: 30px;
+                min-width: 30px;
+                max-width: 30px;
+                margin-left: 0px;
+            } */
+
+            #submit-btn, #cancel-btn {
+                margin-left: 5px;
             }
 
             .button-row > div {
@@ -1095,9 +1198,12 @@
                     </button>
                     <div class="app-title"></div>
                 </div>
+                <div class="header-center">
+                    <span class="document-name-display" id="header-document-name"></span>
+                </div>
                 <div class="header-right">
                     <button class="toggle-sidebar" id="toggle-settings">
-                        <i class="bi bi-gear"></i>
+                        <i class="bi bi-sliders"></i>
                     </button>
                 </div>
             </div>
@@ -1122,11 +1228,13 @@
                     <div>
                         <span class="document-name-display" id="current-document-name"></span>
                     </div>
-                    <div class="d-flex gap-2">
-                        <button type="button" class="btn btn-outline-secondary" id="clear-btn">Clear</button>
-                        <button type="button" class="btn btn-warning" id="reroll-btn"><i class="bi bi-arrow-clockwise"></i></button>
-                        <button type="button" class="btn btn-danger" id="cancel-btn" style="display: none;">Cancel</button>
-                        <button type="button" class="btn btn-primary" id="submit-btn" {% if not token_set %}disabled{% endif %}>Complete</button>
+                    <div class="d-flex">
+                        <button type="button" class="btn" id="seed-btn" {% if not token_set %}disabled{% endif %} title="Generate seed text"><i class="bi bi-leaf"></i></button>
+                        <button type="button" class="btn" id="duplicate-btn" title="Duplicate document"><i class="bi bi-diagram-2" style="font-size: 1.2rem;"></i></button>
+                        <button type="button" class="btn" id="copy-all-btn" title="Copy all text"><i class="bi bi-copy"></i></button>
+                        <button type="button" class="btn" id="reroll-btn" title="Reroll completion"><i class="bi bi-arrow-clockwise"></i></button>
+                        <button type="button" class="btn btn-danger" id="cancel-btn" style="display: none;" title="Cancel generation">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="submit-btn" {% if not token_set %}disabled{% endif %} title="Generate completion">Complete</button>
                     </div>
                 </div>
             </div>
@@ -1242,7 +1350,7 @@
                         <div class="mb-3">
                             <label for="token-input" class="form-label">API Token</label>
                             <input type="password" class="form-control" id="token-input" required>
-                            <div class="form-text">Your API token will be stored locally in ~/.openrouter-flask/config.json</div>
+                            <div class="form-text">Your API token will be stored locally in .config</div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -1296,6 +1404,7 @@
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-info" id="autorename-btn">Autorename</button>
                         <button type="submit" class="btn btn-primary">Rename</button>
                     </div>
                 </form>
@@ -1354,6 +1463,16 @@
             <div class="toast-body bg-success text-white d-flex align-items-center">
                 <i class="bi bi-pencil-fill me-2"></i>
                 <span id="autorename-toast-text">Document auto-renamed!</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Duplicate Toast Container (Bottom) -->
+    <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3" style="z-index: 1070; margin-bottom: 120px;">
+        <div id="duplicate-toast" class="toast" role="alert" aria-live="polite" aria-atomic="true">
+            <div class="toast-body bg-success text-white d-flex align-items-center">
+                <i class="bi bi-files me-2"></i>
+                <span>Duplicated! Now editing new version</span>
             </div>
         </div>
     </div>
