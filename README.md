@@ -20,13 +20,13 @@ A simple writing/editing app for using base LLMs in a classic-gpt3-like text san
 
 ### First Time Setup
 
-1. Launch the application and open your browser to `http://127.0.0.1:5000`
-2. Click the sliders icon (top-right) to open Settings
+1. Launch the server and browser as above (in Quick Start)
+2. Click the sliders icon (top-right) to open Settings, if it's not already open
 3. In the **Model/Endpoint** field, enter:
    - An OpenRouter model: `anthropic/claude-sonnet-4.5` or `moonshotai/kimi-k2::deepinfra/fp4`
    - A local/remote server: `http://localhost:1234/v1` or `https://your-tunnel.trycloudflare.com/v1`
-4. Enter your API key (if using OpenRouter)
-5. Adjust temperature, min_p, and max_tokens as desired
+4. Enter your API key (if using OpenRouter). You won't need to add it every launch - just the first one.
+5. Adjust temperature, min_p, and max_tokens as desired. 
 
 ## Creating and Editing Content
 
@@ -37,7 +37,7 @@ A simple writing/editing app for using base LLMs in a classic-gpt3-like text san
 **Generating Completions:**
 - Press `Ctrl+Enter` (or `Cmd+Enter`) to generate a completion from your current text
 - The model will stream text directly into the editor
-- Edit freely - the generated text is just text. It can be whatever you like - a poem, synthetic data jsonl, a conversation, a list.
+- Edit freely - the generated text is just text. It can be whatever you like - a poem, synthetic data jsonl, a conversation, a list, anything.
 
 **Rerolling:**
 - Click the reroll button (circular arrow) to undo the last generation and try again
@@ -90,5 +90,6 @@ Right-click any document for options: Rename, Duplicate, Download as .txt, Delet
 ## Contributing
 
 Contributions are welcome! Feel free to submit issues and pull requests.
+
 
 
