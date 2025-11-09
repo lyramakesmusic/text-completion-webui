@@ -20,7 +20,7 @@ A simple writing/editing app for using base LLMs in a classic-gpt3-like text san
 
 ### First Time Setup
 
-1. Launch the server and browser as above (in Quick Start)
+1. Launch the server and browser as above (see Quick Start)
 2. Click the sliders icon (top-right) to open Settings, if it's not already open
 3. In the **Model/Endpoint** field, enter:
    - An OpenRouter model: `anthropic/claude-sonnet-4.5` or `moonshotai/kimi-k2::deepinfra/fp4`
@@ -90,6 +90,7 @@ Right-click any document for options: Rename, Duplicate, Download as .txt, Delet
 ## Contributing
 
 Contributions are welcome! Feel free to submit issues and pull requests.
+
 
 
 
