@@ -42,7 +42,8 @@ DEFAULT_CONFIG = {
     'provider': 'openrouter',  # 'openrouter', 'openai', 'chutes'
     'custom_api_key': '',  # Optional custom API key for specific providers
     'openai_endpoint': 'http://localhost:8080/v1',  # Only for OpenAI-compatible provider
-    'embeddings_search': True  # Use embeddings search by default
+    'embeddings_search': True,  # Use embeddings search by default
+    'untitled_trick': False  # Use untitled.txt trick (chat format with CLI simulation)
 }
 
 # Seed generation prompt
@@ -913,8 +914,8 @@ def stream_generator(generation_id):
     if '::' in model_str:
         model_str, target_provider = model_str.split('::', 1)
     
-    # Check if using Anthropic model for special handling
-    use_anthropic_trick = 'anthropic' in model_str.lower()
+    # Check if using untitled.txt trick from config toggle
+    use_anthropic_trick = config.get('untitled_trick', False)
     response_format = 'chat' if use_anthropic_trick else 'openai'
     
     # Build endpoint and payload
@@ -1005,6 +1006,7 @@ def settings():
         config['custom_api_key'] = request.form.get('custom_api_key', config.get('custom_api_key', ''))
         config['openai_endpoint'] = request.form.get('openai_endpoint', config.get('openai_endpoint', 'http://localhost:8080/v1'))
         config['embeddings_search'] = request.form.get('embeddings_search') == 'on'
+        config['untitled_trick'] = request.form.get('untitled_trick') == 'on'
         # Debounce config write (1s delay)
         schedule_settings_write()
         return jsonify({'success': True})
@@ -1290,7 +1292,8 @@ def get_seed():
         if '::' in model_str:
             model_str = model_str.split('::', 1)[0]
         
-        use_anthropic_trick = 'anthropic' in model_str.lower()
+        # Check if using untitled.txt trick from config toggle
+        use_anthropic_trick = config.get('untitled_trick', False)
         
         if use_anthropic_trick:
             endpoint_url = 'https://openrouter.ai/api/v1/chat/completions'

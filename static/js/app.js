@@ -1359,6 +1359,17 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (providerField) providerField.value = detection.provider;
         if (endpointField) endpointField.value = detection.endpoint;
+        
+        // Auto-enable untitled trick for Anthropic/Gemini 3 models
+        const untitledTrickToggle = document.getElementById('untitled_trick');
+        if (untitledTrickToggle && !untitledTrickToggle.checked) {
+            const model = modelEndpointField.value.toLowerCase();
+            if (model.includes('anthropic') || model.includes('gemini-3')) {
+                untitledTrickToggle.checked = true;
+                settingsDirty = true;
+                debouncedAutoSave();
+            }
+        }
     }
     
     // Auto-save settings function
@@ -1512,6 +1523,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 const query = domElements.documentSearch.value.trim();
                 searchDocuments(query);
             }
+        });
+    }
+    
+    // Untitled trick toggle - normal on/off with auto-enable for certain models
+    const untitledTrickToggle = document.getElementById('untitled_trick');
+    if (untitledTrickToggle) {
+        untitledTrickToggle.addEventListener('change', function() {
+            autoSaveSettings();
         });
     }
     
