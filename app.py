@@ -702,7 +702,44 @@ def handle_auto_rename_and_save(generation_id):
     
     return new_name
 
-def stream_api_request(endpoint_url, headers, payload, generation_id, response_format='openai', api_name='API', strip_prefix=''):
+def detect_reasoning_event(buffer_chunk, response_format='openai'):
+    """Return True if an SSE line indicates the model produced reasoning/thinking tokens or a scratchpad call."""
+    if not buffer_chunk.startswith('data: '):
+        return False
+    data_str = buffer_chunk[6:]
+    if data_str == '[DONE]':
+        return False
+    try:
+        data_obj = json.loads(data_str)
+    except json.JSONDecodeError:
+        return False
+    if response_format == 'responses':
+        etype = data_obj.get('type', '')
+        if etype in ('response.reasoning_text.delta', 'response.reasoning_summary_text.delta'):
+            return bool((data_obj.get('delta') or '').strip())
+        if etype == 'response.output_item.added':
+            item = data_obj.get('item') or {}
+            if item.get('type') == 'function_call' and item.get('name') == 'scratchpad':
+                return True
+        if etype in ('response.completed', 'response.incomplete'):
+            rt = (data_obj.get('response') or {}).get('usage', {}).get('output_tokens_details', {}).get('reasoning_tokens', 0)
+            return bool(rt and rt > 0)
+        return False
+    elif response_format == 'chat':
+        choices = data_obj.get('choices') or []
+        if choices:
+            delta = choices[0].get('delta') or {}
+            if (delta.get('reasoning') or '').strip():
+                return True
+            for rd in (delta.get('reasoning_details') or []):
+                if rd.get('type') in ('reasoning.text', 'reasoning.summary') and (rd.get('text') or rd.get('summary') or '').strip():
+                    return True
+        rt = (data_obj.get('usage') or {}).get('completion_tokens_details', {}).get('reasoning_tokens', 0)
+        return bool(rt and rt > 0)
+    return False
+
+
+def stream_api_request(endpoint_url, headers, payload, generation_id, response_format='openai', api_name='API', strip_prefix='', abort_on_reasoning=False):
     """Unified streaming handler for all API providers
     
     Args:
@@ -713,6 +750,7 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
         response_format: 'openai', 'chat', or 'responses' for parsing
         api_name: Name for error messages
         strip_prefix: Optional echoed prompt prefix to strip incrementally from streamed output
+        abort_on_reasoning: If True, cancel the stream and flag an error if any reasoning tokens appear
     """
     generation_data = active_generations[generation_id]
     
@@ -742,6 +780,7 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
             # Stream response
             buffer = ""
             was_cancelled = False
+            aborted_reasoning = False
             is_seed = generation_data.get('is_seed', False)
             accumulated_seed = "" if is_seed else None
             prefix_buf = ""
@@ -765,6 +804,13 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
                         
                         if not line.startswith('data: '):
                             continue
+                        
+                        if abort_on_reasoning and detect_reasoning_event(line, response_format):
+                            logger.info("Aborted generation: model produced reasoning tokens")
+                            yield sse_event({"error": "model reasoned - reroll"})
+                            aborted_reasoning = True
+                            was_cancelled = True
+                            break
                         
                         content, is_done = parse_sse_stream(line, response_format)
                         if is_done:
@@ -794,6 +840,8 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
                             accumulated_seed += content
                         
                         yield sse_event({"text": content})
+                    if aborted_reasoning:
+                        break
             
             # Flush any buffered partial prefix if stream ended early without matching full prefix
             if not was_cancelled and not prefix_done and prefix_buf and not strip_prefix.startswith(prefix_buf):
@@ -1039,7 +1087,10 @@ def stream_generator(generation_id):
         payload['provider'] = {'order': [target_provider], 'allow_fallbacks': False}
     
     # Use unified streaming handler
-    yield from stream_api_request(endpoint_url, headers, payload, generation_id, response_format, 'OpenRouter API', strip_prefix=strip_prefix)
+    yield from stream_api_request(
+        endpoint_url, headers, payload, generation_id, response_format, 'OpenRouter API',
+        strip_prefix=strip_prefix, abort_on_reasoning=(method == 'fewshot_gemini')
+    )
 
 # ============================
 # Routes
