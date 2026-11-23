@@ -43,7 +43,8 @@ DEFAULT_CONFIG = {
     'custom_api_key': '',  # Optional custom API key for specific providers
     'openai_endpoint': 'http://localhost:8080/v1',  # Only for OpenAI-compatible provider
     'embeddings_search': True,  # Use embeddings search by default
-    'untitled_trick': False  # Use untitled.txt trick (chat format with CLI simulation)
+    'untitled_trick': False,  # Legacy boolean (kept for backwards compatibility)
+    'completion_method': 'completions'  # 'completions', 'untitled', 'fewshot_gemini'
 }
 
 # Seed generation prompt
@@ -599,10 +600,52 @@ def get_http_error_message(status_code, prefix="API"):
     base_msg = HTTP_ERROR_MESSAGES.get(status_code, f"Unknown error (status {status_code})")
     return f"Error {status_code}: {base_msg}"
 
+def get_completion_method():
+    """Resolve active completion method with backwards compatibility for untitled_trick."""
+    m = config.get('completion_method')
+    if m in ('completions', 'untitled', 'fewshot_gemini'):
+        return m
+    return 'untitled' if config.get('untitled_trick', False) else 'completions'
+
+
+def build_fewshot_gemini_payload(model_str, prompt_text, max_tokens, temperature, stream=True):
+    """Build OpenRouter /v1/responses payload using the minimal zero-thinking doc-slice fewshot."""
+    scratchpad_spec = {
+        'type': 'function',
+        'name': 'scratchpad',
+        'description': 'Reason here, not visible externally.',
+        'strict': False,
+        'parameters': {
+            'type': 'object',
+            'properties': {'work': {'type': 'string'}},
+            'required': ['work'],
+            'additionalProperties': False,
+        },
+    }
+    return {
+        'model': model_str,
+        'reasoning': {'effort': 'low'},
+        'temperature': temperature,
+        'max_output_tokens': max_tokens,
+        'tools': [scratchpad_spec],
+        'tool_choice': 'auto',
+        'parallel_tool_calls': False,
+        'stream': stream,
+        'input': [
+            {'role': 'developer', 'content': 'You have a scratchpad. Maintain all reasoning in tool, avoid external blocks.'},
+            {'role': 'user', 'content': f'doc:105 [0:{len(prompt_text)}]'},
+            {'role': 'assistant', 'content': prompt_text},
+            {'role': 'user', 'content': 'doc:105 [full]'},
+            {'type': 'function_call', 'call_id': 'c0', 'name': 'scratchpad', 'arguments': '{"work":""}'},
+            {'type': 'function_call_output', 'call_id': 'c0', 'output': ''},
+        ],
+    }
+
+
 def parse_sse_stream(buffer_chunk, response_format='openai'):
     """Parse SSE stream chunks and extract content
     Returns: (content_text, is_done)
-    response_format: 'openai' for completions, 'chat' for chat completions
+    response_format: 'openai' for completions, 'chat' for chat completions, 'responses' for OpenRouter Responses API
     """
     if not buffer_chunk.startswith('data: '):
         return None, False
@@ -613,7 +656,14 @@ def parse_sse_stream(buffer_chunk, response_format='openai'):
     
     try:
         data_obj = json.loads(data_str)
-        if response_format == 'chat':
+        if response_format == 'responses':
+            etype = data_obj.get('type', '')
+            if etype == 'response.output_text.delta':
+                return data_obj.get('delta', ''), False
+            if etype in ('response.completed', 'response.incomplete', 'response.failed'):
+                return None, True
+            return '', False
+        elif response_format == 'chat':
             # Chat completions: choices[0].delta.content
             delta = data_obj.get("choices", [{}])[0].get("delta", {})
             return delta.get("content", ""), False
@@ -652,7 +702,7 @@ def handle_auto_rename_and_save(generation_id):
     
     return new_name
 
-def stream_api_request(endpoint_url, headers, payload, generation_id, response_format='openai', api_name='API'):
+def stream_api_request(endpoint_url, headers, payload, generation_id, response_format='openai', api_name='API', strip_prefix=''):
     """Unified streaming handler for all API providers
     
     Args:
@@ -660,8 +710,9 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
         headers: Request headers dict
         payload: Request payload dict
         generation_id: Generation ID for tracking
-        response_format: 'openai' or 'chat' for parsing
+        response_format: 'openai', 'chat', or 'responses' for parsing
         api_name: Name for error messages
+        strip_prefix: Optional echoed prompt prefix to strip incrementally from streamed output
     """
     generation_data = active_generations[generation_id]
     
@@ -693,6 +744,8 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
             was_cancelled = False
             is_seed = generation_data.get('is_seed', False)
             accumulated_seed = "" if is_seed else None
+            prefix_buf = ""
+            prefix_done = not bool(strip_prefix)
             
             for chunk in response.iter_content(chunk_size=1024, decode_unicode=False):
                 if not generation_data['active']:
@@ -719,11 +772,32 @@ def stream_api_request(endpoint_url, headers, payload, generation_id, response_f
                         if not content:
                             continue
                         
+                        # Strip echoed prompt prefix (for full-turn fewshot methods like fewshot (gemini))
+                        if not prefix_done:
+                            prefix_buf += content
+                            if strip_prefix.startswith(prefix_buf):
+                                if len(prefix_buf) == len(strip_prefix):
+                                    prefix_done = True
+                                    prefix_buf = ""
+                                continue
+                            prefix_done = True
+                            if prefix_buf.startswith(strip_prefix):
+                                content = prefix_buf[len(strip_prefix):]
+                            else:
+                                content = prefix_buf
+                            prefix_buf = ""
+                            if not content:
+                                continue
+                        
                         # Accumulate seed text for cleanup
                         if is_seed:
                             accumulated_seed += content
                         
                         yield sse_event({"text": content})
+            
+            # Flush any buffered partial prefix if stream ended early without matching full prefix
+            if not was_cancelled and not prefix_done and prefix_buf and not strip_prefix.startswith(prefix_buf):
+                yield sse_event({"text": prefix_buf})
             
             # Only handle completion if not cancelled
             if not was_cancelled:
@@ -914,13 +988,23 @@ def stream_generator(generation_id):
     if '::' in model_str:
         model_str, target_provider = model_str.split('::', 1)
     
-    # Check if using untitled.txt trick from config toggle
-    use_anthropic_trick = config.get('untitled_trick', False)
-    response_format = 'chat' if use_anthropic_trick else 'openai'
+    # Resolve completion method
+    method = get_completion_method()
+    strip_prefix = ''
     
     # Build endpoint and payload
-    if use_anthropic_trick:
+    if method == 'fewshot_gemini':
+        endpoint_url = 'https://openrouter.ai/api/v1/responses'
+        response_format = 'responses'
+        # Reserve headroom for the echoed prefix so the user still gets ~config['max_tokens'] of new continuation
+        est_prefix_toks = max(64, len(prompt) // 3)
+        payload = build_fewshot_gemini_payload(
+            model_str, prompt, config['max_tokens'] + est_prefix_toks, config['temperature'], stream=True
+        )
+        strip_prefix = prompt
+    elif method == 'untitled':
         endpoint_url = 'https://openrouter.ai/api/v1/chat/completions'
+        response_format = 'chat'
         payload = {
             'model': model_str,
             'max_tokens': config['max_tokens'],
@@ -934,6 +1018,7 @@ def stream_generator(generation_id):
         }
     else:
         endpoint_url = config['endpoint']
+        response_format = 'openai'
         payload = {
             'model': model_str,
             'prompt': prompt,
@@ -945,8 +1030,8 @@ def stream_generator(generation_id):
             'stream': True
         }
     
-    # Add stop tokens for seed generation
-    if generation_data.get('is_seed'):
+    # Add stop tokens for seed generation (not supported on /v1/responses)
+    if generation_data.get('is_seed') and response_format != 'responses':
         payload['stop'] = SEED_STOP_TOKENS
     
     # Add provider targeting if specified
@@ -954,7 +1039,7 @@ def stream_generator(generation_id):
         payload['provider'] = {'order': [target_provider], 'allow_fallbacks': False}
     
     # Use unified streaming handler
-    yield from stream_api_request(endpoint_url, headers, payload, generation_id, response_format, 'OpenRouter API')
+    yield from stream_api_request(endpoint_url, headers, payload, generation_id, response_format, 'OpenRouter API', strip_prefix=strip_prefix)
 
 # ============================
 # Routes
@@ -1006,7 +1091,13 @@ def settings():
         config['custom_api_key'] = request.form.get('custom_api_key', config.get('custom_api_key', ''))
         config['openai_endpoint'] = request.form.get('openai_endpoint', config.get('openai_endpoint', 'http://localhost:8080/v1'))
         config['embeddings_search'] = request.form.get('embeddings_search') == 'on'
-        config['untitled_trick'] = request.form.get('untitled_trick') == 'on'
+        method = request.form.get('completion_method')
+        if method in ('completions', 'untitled', 'fewshot_gemini'):
+            config['completion_method'] = method
+            config['untitled_trick'] = (method == 'untitled')
+        else:
+            config['untitled_trick'] = request.form.get('untitled_trick') == 'on'
+            config['completion_method'] = 'untitled' if config['untitled_trick'] else 'completions'
         # Debounce config write (1s delay)
         schedule_settings_write()
         return jsonify({'success': True})
@@ -1292,11 +1383,19 @@ def get_seed():
         if '::' in model_str:
             model_str = model_str.split('::', 1)[0]
         
-        # Check if using untitled.txt trick from config toggle
-        use_anthropic_trick = config.get('untitled_trick', False)
+        # Resolve completion method
+        method = get_completion_method()
         
-        if use_anthropic_trick:
+        if method == 'fewshot_gemini':
+            endpoint_url = 'https://openrouter.ai/api/v1/responses'
+            response_format = 'responses'
+            est_prefix_toks = max(64, len(SEED_PROMPT) // 3)
+            payload = build_fewshot_gemini_payload(
+                model_str, SEED_PROMPT, config['max_tokens'] + est_prefix_toks, config['temperature'], stream=True
+            )
+        elif method == 'untitled':
             endpoint_url = 'https://openrouter.ai/api/v1/chat/completions'
+            response_format = 'chat'
             payload = {
                 'model': model_str,
                 'max_tokens': config['max_tokens'],
@@ -1310,6 +1409,7 @@ def get_seed():
             }
         else:
             endpoint_url = config['endpoint']
+            response_format = 'openai'
             payload = {
                 'model': model_str,
                 'prompt': SEED_PROMPT,
@@ -1338,15 +1438,18 @@ def get_seed():
                         buffer = buffer[line_end + 1:]
                         
                         if line.startswith('data: '):
-                            response_format = 'chat' if use_anthropic_trick else 'openai'
                             content, is_done = parse_sse_stream(line, response_format)
                             if is_done:
                                 break
                             if content:
                                 accumulated += content
-                                if any(token in accumulated for token in SEED_STOP_TOKENS):
+                                check_str = accumulated[len(SEED_PROMPT):] if (method == 'fewshot_gemini' and accumulated.startswith(SEED_PROMPT)) else accumulated
+                                if any(token in check_str for token in SEED_STOP_TOKENS):
                                     break
         
+        # Strip echoed SEED_PROMPT for fewshot_gemini
+        if method == 'fewshot_gemini' and accumulated.startswith(SEED_PROMPT):
+            accumulated = accumulated[len(SEED_PROMPT):]
         # Clean up result
         min_idx = min((accumulated.find(t) for t in SEED_STOP_TOKENS if t in accumulated), default=len(accumulated))
         result = accumulated[:min_idx].rstrip(".'\u2018\u2019\u2026")

@@ -1322,11 +1322,13 @@
                     </div>
                     
                     <div class="mb-4">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="untitled_trick" name="untitled_trick" {% if config.get('untitled_trick') %}checked{% endif %}>
-                            <label class="form-check-label" for="untitled_trick">Use Untitled.txt</label>
-                        </div>
-                        <!-- <div class="form-text">Use CLI simulation with prefill to access base-like distribution on some models</div> -->
+                        <label for="completion_method" class="form-label">Method</label>
+                        {% set active_method = config.get('completion_method') or ('untitled' if config.get('untitled_trick') else 'completions') %}
+                        <select class="form-select" id="completion_method" name="completion_method">
+                            <option value="completions" {% if active_method == 'completions' %}selected{% endif %}>Completions</option>
+                            <option value="untitled" {% if active_method == 'untitled' %}selected{% endif %}>Untitled.txt (partial prefill)</option>
+                            <option value="fewshot_gemini" {% if active_method == 'fewshot_gemini' %}selected{% endif %}>fewshot (gemini)</option>
+                        </select>
                     </div>
 
                 </form>

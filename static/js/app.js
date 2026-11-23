@@ -1360,12 +1360,16 @@ document.addEventListener('DOMContentLoaded', function() {
         if (providerField) providerField.value = detection.provider;
         if (endpointField) endpointField.value = detection.endpoint;
         
-        // Auto-enable untitled trick for Anthropic/Gemini 3 models
-        const untitledTrickToggle = document.getElementById('untitled_trick');
-        if (untitledTrickToggle && !untitledTrickToggle.checked) {
+        // Auto-select method for Anthropic / Gemini models
+        const methodSelect = document.getElementById('completion_method');
+        if (methodSelect && methodSelect.value === 'completions') {
             const model = modelEndpointField.value.toLowerCase();
-            if (model.includes('anthropic') || model.includes('gemini-3')) {
-                untitledTrickToggle.checked = true;
+            if (model.includes('gemini-4') || model.includes('gemini-3')) {
+                methodSelect.value = 'fewshot_gemini';
+                settingsDirty = true;
+                debouncedAutoSave();
+            } else if (model.includes('anthropic')) {
+                methodSelect.value = 'untitled';
                 settingsDirty = true;
                 debouncedAutoSave();
             }
@@ -1526,10 +1530,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Untitled trick toggle - normal on/off with auto-enable for certain models
-    const untitledTrickToggle = document.getElementById('untitled_trick');
-    if (untitledTrickToggle) {
-        untitledTrickToggle.addEventListener('change', function() {
+    // Completion method selector
+    const completionMethodSelect = document.getElementById('completion_method');
+    if (completionMethodSelect) {
+        completionMethodSelect.addEventListener('change', function() {
+            settingsDirty = true;
             autoSaveSettings();
         });
     }
